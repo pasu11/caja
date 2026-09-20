@@ -1096,15 +1096,21 @@ canvas_set_scroll_region_include_visible_area (EelCanvas *canvas,
     (canvas, x1, y1, x2, y2);
 }
 
-void
-caja_icon_container_update_scroll_region (CajaIconContainer *container)
+/* Compute the scroll region bounds, including the padding, for the
+ * container.  Both the actual scroll region and the container's preferred
+ * size are derived from this, so that GtkScrolledWindow's decision whether
+ * to show the scrollbars stays in sync with the scrollable area.  Otherwise
+ * the scrollbars can flicker on and off when the icons overflow by less than
+ * the padding, which in turn causes spurious relayouts. */
+static void
+get_scroll_region_bounds (CajaIconContainer *container,
+                          double            *x1,
+                          double            *y1,
+                          double            *x2,
+                          double            *y2)
 {
-    double x1, y1, x2, y2;
-    double pixels_per_unit;
-    GtkAdjustment *hadj, *vadj;
-    float step_increment;
-    gboolean reset_scroll_region;
     GtkAllocation allocation;
+    double pixels_per_unit;
 
     pixels_per_unit = EEL_CANVAS (container)->pixels_per_unit;
 
@@ -1112,20 +1118,82 @@ caja_icon_container_update_scroll_region (CajaIconContainer *container)
     {
         /* Set the scroll region to the size of the container allocation */
         gtk_widget_get_allocation (GTK_WIDGET (container), &allocation);
-        eel_canvas_set_scroll_region
-        (EEL_CANVAS (container),
-         (double) - container->details->left_margin / pixels_per_unit,
-         (double) - container->details->top_margin / pixels_per_unit,
-         ((double) (allocation.width - 1)
-          - container->details->left_margin
-          - container->details->right_margin)
-         / pixels_per_unit,
-         ((double) (allocation.height - 1)
-          - container->details->top_margin
-          - container->details->bottom_margin)
-         / pixels_per_unit);
+        *x1 = (double) - container->details->left_margin / pixels_per_unit;
+        *y1 = (double) - container->details->top_margin / pixels_per_unit;
+        *x2 = ((double) (allocation.width - 1)
+               - container->details->left_margin
+               - container->details->right_margin)
+              / pixels_per_unit;
+        *y2 = ((double) (allocation.height - 1)
+               - container->details->top_margin
+               - container->details->bottom_margin)
+              / pixels_per_unit;
         return;
     }
+
+    get_all_icon_bounds (container, x1, y1, x2, y2, BOUNDS_USAGE_FOR_ENTIRE_ITEM);
+
+    /* Add border at the "end"of the layout (i.e. after the icons), to
+     * ensure we get some space when scrolled to the end.
+     * For horizontal layouts, we add a bottom border.
+     * Vertical layout is used by the compact view so the end
+     * depends on the RTL setting.
+     */
+    if (caja_icon_container_is_layout_vertical (container))
+    {
+        if (caja_icon_container_is_layout_rtl (container))
+        {
+            *x1 -= ICON_PAD_LEFT + CONTAINER_PAD_LEFT;
+        }
+        else
+        {
+            *x2 += ICON_PAD_RIGHT + CONTAINER_PAD_RIGHT;
+        }
+    }
+    else
+    {
+        *y2 += ICON_PAD_BOTTOM + CONTAINER_PAD_BOTTOM;
+    }
+
+    /* Auto-layout assumes a 0, 0 scroll origin and at least allocation->width.
+     * Then we lay out to the right or to the left, so
+     * x can be < 0 and > allocation */
+    if (caja_icon_container_is_auto_layout (container))
+    {
+        gtk_widget_get_allocation (GTK_WIDGET (container), &allocation);
+        *x1 = MIN (*x1, 0);
+        *x2 = MAX (*x2, allocation.width / pixels_per_unit);
+        *y1 = 0;
+    }
+    else
+    {
+        /* Otherwise we add the padding that is at the start of the
+           layout */
+        if (caja_icon_container_is_layout_rtl (container))
+        {
+            *x2 += ICON_PAD_RIGHT + CONTAINER_PAD_RIGHT;
+        }
+        else
+        {
+            *x1 -= ICON_PAD_LEFT + CONTAINER_PAD_LEFT;
+        }
+        *y1 -= ICON_PAD_TOP + CONTAINER_PAD_TOP;
+    }
+
+    *x2 -= 1;
+    *x2 = MAX(*x1, *x2);
+
+    *y2 -= 1;
+    *y2 = MAX(*y1, *y2);
+}
+
+void
+caja_icon_container_update_scroll_region (CajaIconContainer *container)
+{
+    double x1, y1, x2, y2;
+    GtkAdjustment *hadj, *vadj;
+    float step_increment;
+    gboolean reset_scroll_region;
 
     reset_scroll_region = container->details->reset_scroll_region_trigger
                           || caja_icon_container_is_empty (container)
@@ -1141,60 +1209,7 @@ caja_icon_container_update_scroll_region (CajaIconContainer *container)
         container->details->reset_scroll_region_trigger = FALSE;
     }
 
-    get_all_icon_bounds (container, &x1, &y1, &x2, &y2, BOUNDS_USAGE_FOR_ENTIRE_ITEM);
-
-    /* Add border at the "end"of the layout (i.e. after the icons), to
-     * ensure we get some space when scrolled to the end.
-     * For horizontal layouts, we add a bottom border.
-     * Vertical layout is used by the compact view so the end
-     * depends on the RTL setting.
-     */
-    if (caja_icon_container_is_layout_vertical (container))
-    {
-        if (caja_icon_container_is_layout_rtl (container))
-        {
-            x1 -= ICON_PAD_LEFT + CONTAINER_PAD_LEFT;
-        }
-        else
-        {
-            x2 += ICON_PAD_RIGHT + CONTAINER_PAD_RIGHT;
-        }
-    }
-    else
-    {
-        y2 += ICON_PAD_BOTTOM + CONTAINER_PAD_BOTTOM;
-    }
-
-    /* Auto-layout assumes a 0, 0 scroll origin and at least allocation->width.
-     * Then we lay out to the right or to the left, so
-     * x can be < 0 and > allocation */
-    if (caja_icon_container_is_auto_layout (container))
-    {
-        gtk_widget_get_allocation (GTK_WIDGET (container), &allocation);
-        x1 = MIN (x1, 0);
-        x2 = MAX (x2, allocation.width / pixels_per_unit);
-        y1 = 0;
-    }
-    else
-    {
-        /* Otherwise we add the padding that is at the start of the
-           layout */
-        if (caja_icon_container_is_layout_rtl (container))
-        {
-            x2 += ICON_PAD_RIGHT + CONTAINER_PAD_RIGHT;
-        }
-        else
-        {
-            x1 -= ICON_PAD_LEFT + CONTAINER_PAD_LEFT;
-        }
-        y1 -= ICON_PAD_TOP + CONTAINER_PAD_TOP;
-    }
-
-    x2 -= 1;
-    x2 = MAX(x1, x2);
-
-    y2 -= 1;
-    y2 = MAX(y1, y2);
+    get_scroll_region_bounds (container, &x1, &y1, &x2, &y2);
 
     if (reset_scroll_region)
     {
@@ -4557,16 +4572,18 @@ get_prefered_width (GtkWidget *widget,
                     gint      *minimum_size,
                     gint      *natural_size)
 {
-    EelCanvasGroup *root;
-    double x1, x2;
+    CajaIconContainer *container;
+    EelCanvas *canvas;
+    double x1, y1, x2, y2;
     int cx1, cx2;
     int width;
 
-    root = eel_canvas_root (EEL_CANVAS (widget));
-    eel_canvas_item_get_bounds (EEL_CANVAS_ITEM (root),
-                    &x1, NULL, &x2, NULL);
-    eel_canvas_w2c (EEL_CANVAS (widget), x1, 0, &cx1, NULL);
-    eel_canvas_w2c (EEL_CANVAS (widget), x2, 0, &cx2, NULL);
+    container = CAJA_ICON_CONTAINER (widget);
+    canvas = EEL_CANVAS (widget);
+
+    get_scroll_region_bounds (container, &x1, &y1, &x2, &y2);
+    eel_canvas_w2c (canvas, x1, 0, &cx1, NULL);
+    eel_canvas_w2c (canvas, x2, 0, &cx2, NULL);
 
     width = cx2 - cx1;
     if (natural_size) {
@@ -4582,16 +4599,18 @@ get_prefered_height (GtkWidget *widget,
                      gint      *minimum_size,
                      gint      *natural_size)
 {
-    EelCanvasGroup *root;
-    double y1, y2;
+    CajaIconContainer *container;
+    EelCanvas *canvas;
+    double x1, y1, x2, y2;
     int cy1, cy2;
     int height;
 
-    root = eel_canvas_root (EEL_CANVAS (widget));
-    eel_canvas_item_get_bounds (EEL_CANVAS_ITEM (root),
-                    NULL, &y1, NULL, &y2);
-    eel_canvas_w2c (EEL_CANVAS (widget), 0, y1, NULL, &cy1);
-    eel_canvas_w2c (EEL_CANVAS (widget), 0, y2, NULL, &cy2);
+    container = CAJA_ICON_CONTAINER (widget);
+    canvas = EEL_CANVAS (widget);
+
+    get_scroll_region_bounds (container, &x1, &y1, &x2, &y2);
+    eel_canvas_w2c (canvas, 0, y1, NULL, &cy1);
+    eel_canvas_w2c (canvas, 0, y2, NULL, &cy2);
 
     height = cy2 - cy1;
     if (natural_size) {
