@@ -149,6 +149,7 @@ struct DeepCountState
     GList *deep_count_subdirectories;
     GArray *seen_deep_count_inodes;
     char *fs_id;
+    gint64 start_time; /* monotonic time when the traversal started */
 };
 
 typedef struct
@@ -2892,19 +2893,74 @@ deep_count_state_free (DeepCountState *state)
     g_free (state);
 }
 
+/* Whether one of the limits requested by the caller of
+ * caja_file_recompute_deep_counts_with_limits() has been reached, in which
+ * case the traversal should stop and keep the counts collected so far. */
+static gboolean
+deep_count_limit_reached (DeepCountState *state,
+                          CajaFile      *file)
+{
+    guint64 entries;
+
+    if (file->details->deep_max_entries != 0)
+    {
+        entries = (guint64) file->details->deep_file_count
+                  + (guint64) file->details->deep_directory_count;
+        if (entries >= file->details->deep_max_entries)
+        {
+            return TRUE;
+        }
+    }
+
+    if (file->details->deep_max_ms != 0 &&
+            (g_get_monotonic_time () - state->start_time) / 1000
+            >= (gint64) file->details->deep_max_ms)
+    {
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+/* Finish the deep count currently in progress.  @truncated is TRUE when the
+ * traversal stopped early because a limit was reached; the counts gathered
+ * so far are kept and caja_file_get_deep_counts_truncated() reports the
+ * result as a lower bound. */
+static void
+deep_count_done (DeepCountState *state,
+                 gboolean        truncated)
+{
+    CajaDirectory *directory;
+    CajaFile *file;
+
+    directory = state->directory;
+    file = directory->details->deep_count_file;
+
+    file->details->deep_counts_truncated = truncated;
+    file->details->deep_counts_status = CAJA_REQUEST_DONE;
+    directory->details->deep_count_file = NULL;
+    directory->details->deep_count_in_progress = NULL;
+
+    /* Frees the enumerator (closing it) and the pending subdirectories. */
+    deep_count_state_free (state);
+
+    caja_file_updated_deep_count_in_progress (file);
+    caja_file_changed (file);
+    async_job_end (directory, "deep count");
+    caja_directory_async_state_changed (directory);
+}
+
 static void
 deep_count_next_dir (DeepCountState *state)
 {
     CajaFile *file;
     CajaDirectory *directory;
-    gboolean done;
 
     directory = state->directory;
 
     g_object_unref (state->deep_count_location);
     state->deep_count_location = NULL;
 
-    done = FALSE;
     file = directory->details->deep_count_file;
 
     if (state->deep_count_subdirectories != NULL)
@@ -2917,23 +2973,12 @@ deep_count_next_dir (DeepCountState *state)
                                            (state->deep_count_subdirectories, location);
         deep_count_load (state, location);
         g_object_unref (location);
+
+        caja_file_updated_deep_count_in_progress (file);
     }
     else
     {
-        file->details->deep_counts_status = CAJA_REQUEST_DONE;
-        directory->details->deep_count_file = NULL;
-        directory->details->deep_count_in_progress = NULL;
-        deep_count_state_free (state);
-        done = TRUE;
-    }
-
-    caja_file_updated_deep_count_in_progress (file);
-
-    if (done)
-    {
-        caja_file_changed (file);
-        async_job_end (directory, "deep count");
-        caja_directory_async_state_changed (directory);
+        deep_count_done (state, FALSE);
     }
 }
 
@@ -2966,9 +3011,25 @@ deep_count_more_files_callback (GObject *source_object,
 
     for (l = files; l != NULL; l = l->next)
     {
+        CajaFile *file;
+
         info = l->data;
         deep_count_one (state, info);
         g_object_unref (info);
+
+        file = state->directory->details->deep_count_file;
+        if (deep_count_limit_reached (state, file))
+        {
+            /* Drop the rest of this batch and stop the traversal. */
+            GList *rest = l->next;
+
+            l->next = NULL;
+            g_list_free_full (rest, g_object_unref);
+            g_list_free (files);
+            deep_count_done (state, TRUE);
+            caja_directory_unref (directory);
+            return;
+        }
     }
 
     if (files == NULL)
@@ -3141,6 +3202,7 @@ deep_count_start (CajaDirectory *directory,
 
     /* Start counting. */
     file->details->deep_counts_status = CAJA_REQUEST_IN_PROGRESS;
+    file->details->deep_counts_truncated = FALSE;
     file->details->deep_directory_count = 0;
     file->details->deep_file_count = 0;
     file->details->deep_unreadable_count = 0;
@@ -3153,6 +3215,7 @@ deep_count_start (CajaDirectory *directory,
     state->cancellable = g_cancellable_new ();
     state->seen_deep_count_inodes = g_array_new (FALSE, TRUE, sizeof (guint64));
     state->fs_id = NULL;
+    state->start_time = g_get_monotonic_time ();
 
     directory->details->deep_count_in_progress = state;
 

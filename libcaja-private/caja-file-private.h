@@ -106,6 +106,11 @@ struct _CajaFilePrivate
     guint deep_unreadable_count;
     goffset deep_size;
     goffset deep_size_on_disk;
+    /* Bounds for the next deep count; 0 means unlimited.  They are set by
+     * caja_file_recompute_deep_counts_with_limits() and read by the
+     * asynchronous deep count in caja-directory-async.c. */
+    guint64 deep_max_entries;
+    guint deep_max_ms;
 
     GIcon *icon;
 
@@ -175,6 +180,9 @@ struct _CajaFilePrivate
     eel_boolean_bit directory_count_is_up_to_date : 1;
 
     eel_boolean_bit deep_counts_status      : 2; /* CajaRequestStatus */
+    /* The traversal stopped at one of the limits, so the deep counts are
+     * a lower bound rather than the exact value. */
+    eel_boolean_bit deep_counts_truncated   : 1;
     /* no deep_counts_are_up_to_date field; since we expose
            intermediate values for this attribute, we do actually
            forget it rather than invalidating. */

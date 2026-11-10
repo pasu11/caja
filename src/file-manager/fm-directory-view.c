@@ -157,6 +157,16 @@ static guint signals[LAST_SIGNAL] = { 0 };
 
 static GdkAtom copied_files_atom;
 
+/* Bounds for the recursive size that the status bar shows for a selected
+ * folder.  Walking a whole tree is expensive, so we stop after either this
+ * many directory entries or this much wall clock time and present the
+ * result as a lower bound.  Counting only starts once the selection has
+ * been stable for FM_DIRECTORY_VIEW_DEEP_COUNT_DELAY_MS, so that holding
+ * an arrow key does not start a count for every folder we pass through. */
+#define FM_DIRECTORY_VIEW_DEEP_COUNT_MAX_ENTRIES 10000
+#define FM_DIRECTORY_VIEW_DEEP_COUNT_MAX_MS      3000
+#define FM_DIRECTORY_VIEW_DEEP_COUNT_DELAY_MS    300
+
 static char *scripts_directory_uri;
 static int scripts_directory_uri_length;
 
@@ -186,6 +196,10 @@ struct FMDirectoryViewDetails
 	guint update_menus_timeout_id;
 	guint update_status_idle_id;
 	guint reveal_selection_idle_id;
+
+	/* Deep count plumbing for the size shown in the status bar. */
+	guint deep_count_timeout_id;
+	GList *deep_count_files;
 
 	guint display_pending_source_id;
 	guint changes_timeout_id;
@@ -317,6 +331,8 @@ static void     schedule_update_menus_callback                 (gpointer        
 static void     remove_update_menus_timeout_callback           (FMDirectoryView      *view);
 static void     schedule_update_status                          (FMDirectoryView      *view);
 static void     remove_update_status_idle_callback             (FMDirectoryView *view);
+static void     prune_deep_count_requests                      (FMDirectoryView *view,
+								GList *selection);
 static void     reset_update_interval                          (FMDirectoryView      *view);
 static void     schedule_idle_display_of_pending_files         (FMDirectoryView      *view);
 static void     unschedule_display_of_pending_files            (FMDirectoryView      *view);
@@ -2161,6 +2177,12 @@ fm_directory_view_destroy (GtkWidget *object)
 	remove_update_menus_timeout_callback (view);
 	remove_update_status_idle_callback (view);
 
+	if (view->details->deep_count_timeout_id != 0) {
+		g_source_remove (view->details->deep_count_timeout_id);
+		view->details->deep_count_timeout_id = 0;
+	}
+	prune_deep_count_requests (view, NULL);
+
 	if (view->details->display_selection_idle_id != 0) {
 		g_source_remove (view->details->display_selection_idle_id);
 		view->details->display_selection_idle_id = 0;
@@ -2221,6 +2243,161 @@ fm_directory_view_finalize (GObject *object)
 	EEL_CALL_PARENT (G_OBJECT_CLASS, finalize, (object));
 }
 
+/* Whether @file is a folder whose recursive size we are willing to compute
+ * for the status bar.  The existing "show-directory-item-counts" speed
+ * tradeoff preference decides whether item counts and sizes are wanted at
+ * all, and whether they are computed for non-local file systems. */
+static gboolean
+deep_count_is_allowed (CajaFile *file)
+{
+	return caja_file_is_directory (file)
+		&& !caja_file_is_in_trash (file)
+		&& caja_file_is_local (file)
+		&& caja_file_should_show_directory_item_count (file);
+}
+
+/* Whether @file is inside one of the other files in @list, in which case it
+ * must not be added again when summing up the size of the selection. */
+static gboolean
+file_has_prefix_in_list (CajaFile *file, GList *list)
+{
+	GList *p;
+	GFile *location, *candidate_location;
+	gboolean has_prefix;
+
+	location = caja_file_get_location (file);
+	has_prefix = FALSE;
+
+	for (p = list; p != NULL && !has_prefix; p = p->next) {
+		if (file == p->data) {
+			continue;
+		}
+
+		candidate_location = caja_file_get_location (CAJA_FILE (p->data));
+		has_prefix = g_file_has_prefix (location, candidate_location);
+		g_object_unref (candidate_location);
+	}
+
+	g_object_unref (location);
+
+	return has_prefix;
+}
+
+/* Called once the deep count of a folder we asked about has finished (or
+ * failed).  The request is dropped by then, so forget the file. */
+static void
+deep_count_ready_callback (CajaFile *file, gpointer data)
+{
+	FMDirectoryView *view;
+
+	view = FM_DIRECTORY_VIEW (data);
+
+	view->details->deep_count_files = g_list_remove (view->details->deep_count_files, file);
+	caja_file_unref (file);
+
+	schedule_update_status (view);
+}
+
+/* Drop the pending deep count requests for files that are no longer part of
+ * the selection.  Cancelling the request is what stops a traversal nobody
+ * wants any more; requests for files that are still selected are kept, so
+ * that frequent status updates cannot cancel a count just as it finishes. */
+static void
+prune_deep_count_requests (FMDirectoryView *view, GList *selection)
+{
+	GList *p, *next, *kept;
+
+	kept = NULL;
+
+	for (p = view->details->deep_count_files; p != NULL; p = next) {
+		CajaFile *file;
+
+		next = p->next;
+		file = CAJA_FILE (p->data);
+
+		if (g_list_find (selection, file) &&
+		    deep_count_is_allowed (file) &&
+		    !file_has_prefix_in_list (file, selection)) {
+			kept = g_list_prepend (kept, file);
+		} else {
+			caja_file_cancel_call_when_ready (file, deep_count_ready_callback, view);
+			caja_file_unref (file);
+		}
+	}
+
+	g_list_free (view->details->deep_count_files);
+	view->details->deep_count_files = kept;
+}
+
+/* Ask for the deep counts of @file to be computed with the limits used by
+ * the status bar.  The ready callback both refreshes the status bar and
+ * releases the request. */
+static void
+request_deep_count (FMDirectoryView *view, CajaFile *file)
+{
+	if (g_list_find (view->details->deep_count_files, file)) {
+		return;
+	}
+
+	caja_file_recompute_deep_counts_with_limits (file,
+						     FM_DIRECTORY_VIEW_DEEP_COUNT_MAX_ENTRIES,
+						     FM_DIRECTORY_VIEW_DEEP_COUNT_MAX_MS);
+
+	view->details->deep_count_files = g_list_prepend (view->details->deep_count_files,
+							  caja_file_ref (file));
+	caja_file_call_when_ready (file, CAJA_FILE_ATTRIBUTE_DEEP_COUNTS,
+				   deep_count_ready_callback, view);
+}
+
+/* Runs once the selection has been stable for a moment: start counting the
+ * folders that still have no complete deep count. */
+static gboolean
+deep_count_timeout_callback (gpointer data)
+{
+	FMDirectoryView *view;
+	GList *selection, *p;
+
+	view = FM_DIRECTORY_VIEW (data);
+	view->details->deep_count_timeout_id = 0;
+
+	selection = fm_directory_view_get_selection (view);
+
+	for (p = selection; p != NULL; p = p->next) {
+		CajaFile *file;
+
+		file = CAJA_FILE (p->data);
+		if (!deep_count_is_allowed (file) ||
+		    file_has_prefix_in_list (file, selection)) {
+			continue;
+		}
+
+		{
+			CajaRequestStatus status;
+
+			status = caja_file_get_deep_counts (file, NULL, NULL, NULL, NULL, NULL, TRUE);
+			if (status != CAJA_REQUEST_DONE) {
+				request_deep_count (view, file);
+			}
+		}
+	}
+
+	caja_file_list_free (selection);
+
+	return FALSE;
+}
+
+/* Format a count that stopped at the traversal limit in a compact way, so
+ * that the status bar does not grow by four digits, e.g. 10000 -> "10k". */
+static char *
+format_deep_count_bound (guint count)
+{
+	if (count >= 1000) {
+		return g_strdup_printf ("%uk", count / 1000);
+	}
+
+	return g_strdup_printf ("%u", count);
+}
+
 /**
  * fm_directory_view_display_selection_info:
  *
@@ -2238,10 +2415,20 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 	gboolean folder_item_count_known;
 	guint file_item_count;
 	GList *p;
+	guint folder_size_count;
+	guint folder_recursive_count;
+	gboolean folder_recursive_known;
+	goffset folder_size;
+	gboolean folder_size_known;
+	gboolean folder_size_truncated;
+	gboolean folder_size_needs_request;
 	char *first_item_name;
 	char *non_folder_str;
 	char *folder_count_str;
 	char *folder_item_count_str;
+	char *folder_total_str;
+	char *folder_size_str;
+	char *folder_str;
 	char *status_string;
 	char *free_space_str;
 	char *obj_selected_free_space_str;
@@ -2257,12 +2444,30 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 	non_folder_count = 0;
 	non_folder_size_known = FALSE;
 	non_folder_size = 0;
+	folder_size_count = 0;
+	folder_recursive_count = 0;
+	folder_recursive_known = TRUE;
+	folder_size = 0;
+	folder_size_known = TRUE;
+	folder_size_truncated = FALSE;
+	folder_size_needs_request = FALSE;
 	first_item_name = NULL;
 	folder_count_str = NULL;
 	non_folder_str = NULL;
 	folder_item_count_str = NULL;
+	folder_total_str = NULL;
+	folder_size_str = NULL;
+	folder_str = NULL;
 	free_space_str = NULL;
 	obj_selected_free_space_str = NULL;
+
+	/* The selection changed: forget the requests for files that are no
+	 * longer selected. */
+	if (view->details->deep_count_timeout_id != 0) {
+		g_source_remove (view->details->deep_count_timeout_id);
+		view->details->deep_count_timeout_id = 0;
+	}
+	prune_deep_count_requests (view, selection);
 
 	for (p = selection; p != NULL; p = p->next) {
 		file = p->data;
@@ -2272,6 +2477,36 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 				folder_item_count += file_item_count;
 			} else {
 				folder_item_count_known = FALSE;
+			}
+
+			if (deep_count_is_allowed (file) &&
+			    !file_has_prefix_in_list (file, selection)) {
+				CajaRequestStatus status;
+				guint directory_count, file_count;
+				goffset size;
+
+				status = caja_file_get_deep_counts (file,
+								    &directory_count, &file_count, NULL,
+								    &size, NULL, TRUE);
+				folder_size_count++;
+
+				if (status == CAJA_REQUEST_DONE) {
+					folder_recursive_count += directory_count + file_count;
+					folder_size += size;
+					if (caja_file_get_deep_counts_truncated (file)) {
+						folder_size_truncated = TRUE;
+					}
+				} else {
+					folder_recursive_known = FALSE;
+					folder_size_known = FALSE;
+					if (!g_list_find (view->details->deep_count_files, file)) {
+						folder_size_needs_request = TRUE;
+					}
+				}
+			} else {
+				/* This folder is not counted, so a recursive total would
+				 * not describe the same set of files as the item count. */
+				folder_recursive_known = FALSE;
 			}
 		} else {
 			non_folder_count++;
@@ -2288,42 +2523,125 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 
 	caja_file_list_free (selection);
 
+	/* Give the selection a moment to settle before starting an expensive
+	 * traversal, so that stepping through folders does not start a count
+	 * for each of them. */
+	if (folder_size_needs_request) {
+		view->details->deep_count_timeout_id =
+			g_timeout_add (FM_DIRECTORY_VIEW_DEEP_COUNT_DELAY_MS,
+				       deep_count_timeout_callback, view);
+	}
+
+	/* An empty folder has no recursive total or size to report: "0 items"
+	 * already says all there is. */
+	if (folder_size_count > 0 &&
+	    !(folder_item_count_known && folder_item_count == 0)) {
+		if (!folder_size_known) {
+			folder_size_str = g_strdup ("…");
+		} else {
+			char *size_string;
+
+			if (g_settings_get_boolean (caja_preferences, CAJA_PREFERENCES_USE_IEC_UNITS)) {
+				size_string = g_format_size_full ((guint64) folder_size, G_FORMAT_SIZE_IEC_UNITS);
+			} else {
+				size_string = g_format_size ((guint64) folder_size);
+			}
+
+			if (folder_size_truncated) {
+				char *plain;
+
+				/* Translators: the leading > means the real value is
+				 * larger; the counting stopped early. */
+				plain = g_strdup_printf (_(">%s"), size_string);
+				g_free (size_string);
+				size_string = plain;
+			}
+
+			folder_size_str = size_string;
+
+			if (folder_recursive_known) {
+				/* Translators: the number of entries in the whole tree
+				 * (subfolders included), e.g. "1,234 total".  It is
+				 * shown even when it equals the number of direct entries.
+				 * The leading > means the count stopped early and the
+				 * real value is larger; "k" stands for a thousand. */
+				if (folder_size_truncated) {
+					char *bound;
+
+					bound = format_deep_count_bound (folder_recursive_count);
+					folder_total_str = g_strdup_printf (_(">%s total"), bound);
+					g_free (bound);
+				} else {
+					folder_total_str = g_strdup_printf (_("%'d total"),
+									    folder_recursive_count);
+				}
+			}
+		}
+	}
+
 	/* Break out cases for localization's sake. But note that there are still pieces
 	 * being assembled in a particular order, which may be a problem for some localizers.
 	 */
 
 	if (folder_count != 0) {
 		if (folder_count == 1 && non_folder_count == 0) {
-			folder_count_str = g_strdup_printf (_("\"%s\" selected"), first_item_name);
+			folder_count_str = g_strdup_printf (_("\"%s\""), first_item_name);
 		} else {
-			folder_count_str = g_strdup_printf (ngettext("%'d folder selected",
-								     "%'d folders selected",
+			folder_count_str = g_strdup_printf (ngettext("%'d folder",
+								     "%'d folders",
 								     folder_count),
 							    folder_count);
 		}
 
-		if (folder_count == 1) {
-			if (!folder_item_count_known) {
-				folder_item_count_str = g_strdup ("");
-			} else {
-				folder_item_count_str = g_strdup_printf (ngettext(" (containing %'d item)",
-										  " (containing %'d items)",
-										  folder_item_count),
-									 folder_item_count);
-			}
-		}
-		else {
-			if (!folder_item_count_known) {
-				folder_item_count_str = g_strdup ("");
-			} else {
-				/* Translators: this is preceded with a string of form 'N folders' (N more than 1) */
-				folder_item_count_str = g_strdup_printf (ngettext(" (containing a total of %'d item)",
-										  " (containing a total of %'d items)",
-										  folder_item_count),
-									 folder_item_count);
+		{
+			char *detail = NULL;
+			char *tmp;
+
+			if (folder_item_count_known) {
+				detail = g_strdup_printf (ngettext("%'d item",
+								   "%'d items",
+								   folder_item_count),
+							  folder_item_count);
 			}
 
+			if (folder_total_str != NULL) {
+				if (detail != NULL) {
+					tmp = detail;
+					/* Translators: the first value is the number of
+					 * entries directly inside the folder, the second one
+					 * the number of entries in its subfolders, e.g.
+					 * "20 items, 1,234 total". */
+					detail = g_strdup_printf (_("%s, %s"), tmp, folder_total_str);
+					g_free (tmp);
+				} else {
+					detail = g_strdup (folder_total_str);
+				}
+			}
+
+			if (folder_size_str != NULL) {
+				if (detail != NULL) {
+					tmp = detail;
+					/* Translators: the first value describes the folder
+					 * contents, the second one is their size, e.g.
+					 * "20 items, 1,234 total, 5.4 kB". */
+					detail = g_strdup_printf (_("%s, %s"), tmp, folder_size_str);
+					g_free (tmp);
+				} else {
+					detail = g_strdup (folder_size_str);
+				}
+			}
+
+			if (detail != NULL) {
+				folder_item_count_str = g_strdup_printf (_(" (%s)"), detail);
+				g_free (detail);
+			} else {
+				folder_item_count_str = g_strdup ("");
+			}
 		}
+
+		folder_str = g_strdup_printf ("%s%s",
+					      folder_count_str,
+					      folder_item_count_str);
 	}
 
 	if (non_folder_count != 0) {
@@ -2331,18 +2649,18 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 
 		if (folder_count == 0) {
 			if (non_folder_count == 1) {
-				items_string = g_strdup_printf (_("\"%s\" selected"),
+				items_string = g_strdup_printf (_("\"%s\""),
 								  first_item_name);
 			} else {
-				items_string = g_strdup_printf (ngettext("%'d item selected",
-									   "%'d items selected",
+				items_string = g_strdup_printf (ngettext("%'d item",
+									   "%'d items",
 									   non_folder_count),
 								  non_folder_count);
 			}
 		} else {
 			/* Folders selected also, use "other" terminology */
-			items_string = g_strdup_printf (ngettext("%'d other item selected",
-								   "%'d other items selected",
+			items_string = g_strdup_printf (ngettext("%'d other item",
+								   "%'d other items",
 								   non_folder_count),
 							  non_folder_count);
 		}
@@ -2355,11 +2673,8 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 			else
 				size_string = g_format_size ((guint64) non_folder_size);
 
-			/* Translators: This is marked for translation in case a localiser
-			 * needs to use something other than parentheses. The
-			 * first message gives the number of items selected;
-			 * the message in parentheses the size of those items.
-			 */
+			/* Translators: the first value is the selection, the second one
+			 * is the size of the selected files, e.g. "3 items (1.2 MB)". */
 			non_folder_str = g_strdup_printf (_("%s (%s)"),
 							  items_string,
 							  size_string);
@@ -2373,7 +2688,7 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 
 	free_space_str = caja_file_get_volume_free_space (view->details->directory_as_file);
 	if (free_space_str != NULL) {
-		obj_selected_free_space_str = g_strdup_printf (_("Free space: %s"), free_space_str);
+		obj_selected_free_space_str = g_strdup_printf (_("Free Space: %s"), free_space_str);
 	}
 	if (folder_count == 0 && non_folder_count == 0)	{
 		char *item_count_str;
@@ -2384,7 +2699,9 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 		item_count_str = g_strdup_printf (ngettext ("%'u item", "%'u items", item_count), item_count);
 
 		if (free_space_str != NULL) {
-			status_string = g_strdup_printf (_("%s, Free space: %s"), item_count_str, free_space_str);
+			/* Translators: this is the selection, followed by the free
+			 * space of the volume, e.g. "3 items Free Space: 1.2 GB". */
+			status_string = g_strdup_printf (_("%s %s"), item_count_str, obj_selected_free_space_str);
 			g_free (item_count_str);
 		} else {
 			status_string = item_count_str;
@@ -2394,60 +2711,35 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 		if (free_space_str == NULL) {
 			status_string = g_strdup (non_folder_str);
 		} else {
-			/* Marking this for translation, since you
-			 * might want to change "," to something else.
-			 * After the comma the amount of free space will
-			 * be shown.
-			 */
-			status_string = g_strdup_printf (_("%s, %s"),
+			/* Translators: this is the selection, followed by the free
+			 * space of the volume, e.g. "3 items (1.2 MB) Free Space: 1.2 GB". */
+			status_string = g_strdup_printf (_("%s %s"),
 							 non_folder_str,
 							 obj_selected_free_space_str);
 		}
 	} else if (non_folder_count == 0) {
 		if (free_space_str == NULL) {
-		        /* No use marking this for translation, since you
-		         * can't reorder the strings, which is the main thing
-		         * you'd want to do.
-		         */
-			status_string = g_strdup_printf ("%s%s",
-							 folder_count_str,
-							 folder_item_count_str);
+			status_string = g_strdup (folder_str);
 		} else {
-			/* Marking this for translation, since you
-			 * might want to change "," to something else.
-			 * After the comma the amount of free space will
-			 * be shown.
-			 */
-			status_string = g_strdup_printf (_("%s%s, %s"),
-							 folder_count_str,
-							 folder_item_count_str,
+			/* Translators: this is the selection, followed by the free
+			 * space of the volume, e.g. "\"docs\" (3 items) Free Space: 1.2 GB". */
+			status_string = g_strdup_printf (_("%s %s"),
+							 folder_str,
 							 obj_selected_free_space_str);
 		}
 	} else {
 		if (obj_selected_free_space_str == NULL) {
-			/* This is marked for translation in case a localizer
-			 * needs to change ", " to something else. The comma
-			 * is between the message about the number of folders
-			 * and the number of items in those folders and the
-			 * message about the number of other items and the
-			 * total size of those items.
-			 */
-			status_string = g_strdup_printf (_("%s%s, %s"),
-							 folder_count_str,
-							 folder_item_count_str,
+			/* Translators: this is the selected folders, followed by the
+			 * selected files, e.g. "2 folders (3 items) · 1 file". */
+			status_string = g_strdup_printf (_("%s · %s"),
+							 folder_str,
 							 non_folder_str);
 		} else {
-			/* This is marked for translation in case a localizer
-			 * needs to change ", " to something else. The first comma
-			 * is between the message about the number of folders
-			 * and the number of items in those folders and the
-			 * message about the number of other items and the
-			 * total size of those items. After the second comma
-			 * the free space is written.
-			 */
-			status_string = g_strdup_printf (_("%s%s, %s, %s"),
-							 folder_count_str,
-							 folder_item_count_str,
+			/* Translators: this is the selected folders, the selected
+			 * files and the free space of the volume, e.g.
+			 * "2 folders (3 items) · 1 file Free Space: 1.2 GB". */
+			status_string = g_strdup_printf (_("%s · %s %s"),
+							 folder_str,
 							 non_folder_str,
 							 obj_selected_free_space_str);
 		}
@@ -2458,6 +2750,9 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 	g_free (first_item_name);
 	g_free (folder_count_str);
 	g_free (folder_item_count_str);
+	g_free (folder_total_str);
+	g_free (folder_size_str);
+	g_free (folder_str);
 	g_free (non_folder_str);
 
 	caja_window_slot_info_set_status (view->details->slot,

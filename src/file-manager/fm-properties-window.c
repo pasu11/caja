@@ -2240,6 +2240,7 @@ directory_contents_value_field_update (FMPropertiesWindow *window)
 	goffset total_size;
 	goffset total_size_on_disk;
 	gboolean used_two_lines;
+	gboolean truncated;
 	GList *l;
 	guint file_unreadable;
 	goffset file_size;
@@ -2249,6 +2250,7 @@ directory_contents_value_field_update (FMPropertiesWindow *window)
 	g_assert (FM_IS_PROPERTIES_WINDOW (window));
 
 	status = CAJA_REQUEST_DONE;
+	truncated = FALSE;
 	file_status = CAJA_REQUEST_NOT_STARTED;
 	total_count = window->details->total_count;
 	total_size = window->details->total_size;
@@ -2271,6 +2273,9 @@ directory_contents_value_field_update (FMPropertiesWindow *window)
 					 &file_size,
 					 &file_size_on_disk,
 					 TRUE);
+			if (caja_file_get_deep_counts_truncated (file)) {
+				truncated = TRUE;
+			}
 			total_count += (file_count + directory_count);
 			total_size += file_size;
 			total_size_on_disk += file_size_on_disk;
@@ -2341,6 +2346,18 @@ directory_contents_value_field_update (FMPropertiesWindow *window)
 			g_free (temp);
 			used_two_lines = TRUE;
 		}
+	}
+
+	if (truncated) {
+		/* The recursive count was stopped early because it was only
+		 * wanted for the status bar, so the cached numbers are a lower
+		 * bound.  The recount started by this window will replace them
+		 * as soon as it is done. */
+		g_free (text);
+		text = g_strdup_printf (ngettext("≥ %'d item (calculating…)",
+						 "≥ %'d items (calculating…)",
+						 total_count),
+					total_count);
 	}
 
 	gtk_label_set_text (window->details->directory_contents_value_field,

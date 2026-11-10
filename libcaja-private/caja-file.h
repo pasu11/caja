@@ -216,6 +216,10 @@ gboolean                caja_file_get_directory_item_count          (CajaFile   
         guint                          *count,
         gboolean                       *count_unreadable);
 void                    caja_file_recompute_deep_counts             (CajaFile                   *file);
+void                    caja_file_recompute_deep_counts_with_limits (CajaFile                   *file,
+        guint64                         max_entries,
+        guint                           max_ms);
+gboolean                caja_file_get_deep_counts_truncated         (CajaFile                   *file);
 CajaRequestStatus   caja_file_get_deep_counts                   (CajaFile                   *file,
         guint                          *directory_count,
         guint                          *file_count,

@@ -5241,16 +5241,78 @@ caja_file_get_deep_counts (CajaFile *file,
 				   total_size_on_disk));
 }
 
+/**
+ * caja_file_recompute_deep_counts
+ *
+ * Ask for the deep counts of @file to be recomputed, without any limit on
+ * how much of the tree is traversed.
+ **/
 void
 caja_file_recompute_deep_counts (CajaFile *file)
 {
-	if (file->details->deep_counts_status != CAJA_REQUEST_IN_PROGRESS) {
-		file->details->deep_counts_status = CAJA_REQUEST_NOT_STARTED;
-		if (file->details->directory != NULL) {
-			caja_directory_add_file_to_work_queue (file->details->directory, file);
-			caja_directory_async_state_changed (file->details->directory);
+	caja_file_recompute_deep_counts_with_limits (file, 0, 0);
+}
+
+/**
+ * caja_file_recompute_deep_counts_with_limits
+ * @file: a #CajaFile representing a directory
+ * @max_entries: stop counting after this many directory entries, or 0 for
+ * no limit
+ * @max_ms: stop counting after this many milliseconds, or 0 for no limit
+ *
+ * Like caja_file_recompute_deep_counts(), but bounds the traversal.  When a
+ * limit is reached the counts collected so far are kept, the request still
+ * finishes with %CAJA_REQUEST_DONE, and caja_file_get_deep_counts_truncated()
+ * returns %TRUE so that callers can present the result as a lower bound.
+ *
+ * This is meant for callers that show the size of a whole tree in the UI
+ * without being asked to (the status bar), where walking a huge or slow
+ * tree could keep the disk busy for an unbounded amount of time.
+ **/
+void
+caja_file_recompute_deep_counts_with_limits (CajaFile *file,
+					     guint64 max_entries,
+					     guint max_ms)
+{
+	g_return_if_fail (CAJA_IS_FILE (file));
+
+	if (file->details->deep_counts_status == CAJA_REQUEST_IN_PROGRESS) {
+		/* A count is already running.  Never make it stricter, but let
+		 * an unlimited request (the properties window) lift a limit that
+		 * was set by a look-only caller. */
+		if (max_entries == 0 && max_ms == 0) {
+			file->details->deep_max_entries = 0;
+			file->details->deep_max_ms = 0;
 		}
+		return;
 	}
+
+	file->details->deep_max_entries = max_entries;
+	file->details->deep_max_ms = max_ms;
+	file->details->deep_counts_truncated = FALSE;
+	file->details->deep_counts_status = CAJA_REQUEST_NOT_STARTED;
+	if (file->details->directory != NULL) {
+		caja_directory_add_file_to_work_queue (file->details->directory, file);
+		caja_directory_async_state_changed (file->details->directory);
+	}
+}
+
+/**
+ * caja_file_get_deep_counts_truncated
+ * @file: a #CajaFile representing a directory
+ *
+ * Whether the deep counts currently held by @file are only a lower bound
+ * because the traversal stopped at one of the limits passed to
+ * caja_file_recompute_deep_counts_with_limits().
+ *
+ * Returns: %TRUE if the deep counts are incomplete
+ **/
+gboolean
+caja_file_get_deep_counts_truncated (CajaFile *file)
+{
+	g_return_val_if_fail (CAJA_IS_FILE (file), FALSE);
+
+	return file->details->deep_counts_truncated;
 }
 
 gboolean
@@ -7889,6 +7951,7 @@ static void
 invalidate_deep_counts (CajaFile *file)
 {
 	file->details->deep_counts_status = CAJA_REQUEST_NOT_STARTED;
+	file->details->deep_counts_truncated = FALSE;
 }
 
 static void
