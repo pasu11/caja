@@ -1,4 +1,4 @@
-# Local fixes on top of Caja 1.29.1
+# Local changes on top of Caja 1.29.1
 
 This repository is a fork of [caja](https://github.com/mate-desktop/caja).
 
@@ -9,14 +9,14 @@ This repository is a fork of [caja](https://github.com/mate-desktop/caja).
   It also carries everything upstream added between `v1.29.1` and `master`,
   so the patches were merged rather than just applied to the 1.29.1 tree.
 
-The fixes were written for the 1.29.1 tree. They are independent of each
+The changes were written for the 1.29.1 tree. They are independent of each
 other and can be dropped individually.
 
 | # | Commit subject | Upstream issue |
 | --- | --- | --- |
 | 1 | `icon-container: Fix renaming when the scrollbar just appears` | [#1444](https://github.com/mate-desktop/caja/issues/1444) |
-| 2 | `fm-directory-view: Show the size of selected folders in the status bar` | – |
-| 3 | `file-manager: Build a fresh popup menu for every popup` | – |
+| 2 | `file-manager: Build a fresh popup menu for every popup` | – |
+| 3 | `fm-directory-view: Show the size of selected folders in the status bar` | – |
 
 ## 1. Rename is cancelled when the scrollbar just appears
 
@@ -41,7 +41,44 @@ rename is cancelled as soon as it starts.
 for the preferred size, so GtkScrolledWindow's scrollbar decision always
 matches the real scrollable area.
 
-## 2. Size of selected folders in the status bar
+## 2. Fresh popup menu for every popup
+
+**Files:** `src/file-manager/fm-directory-view.c`
+
+**Symptom:** right-clicking sometimes shows a context menu with an empty row
+above and below the items, and the last entries silently disappear (the mouse
+wheel can still reach them). The next right click looks fine again.
+
+**Cause:** a `GtkMenu` that is already mapped keeps the size of its popup
+window when its items change — `GtkWindow` only re-negotiates the size while
+the menu is being popped up. The popup menus are long-lived children of the
+window's `GtkUIManager`, shared by every right click and by both panes in
+split view (F3), while a right click schedules a menu update (selection
+change, file info refresh, clipboard, extension or script signals) that runs
+one `update_interval` (100 ms by default) later — after the menu was popped
+up. When the items grow, the popup stays too small and `gtk_menu_scroll_to()`
+switches the menu into its "scrolling menu" mode: it reserves the scroll arrow
+areas above and below the items and clips the items that no longer fit. Most
+themes draw the insensitive arrow transparent, which looks like an empty row.
+
+**Fix:** build the popup menu from scratch for every popup. The items come
+from the window's merged UI (`gtk_ui_manager_get_ui()` returns the statically
+and dynamically merged items, including the open-with, script, template and
+extension ones) in a private `GtkUIManager` that shares the window's action
+groups, so labels, icons, sensitivities and the activation callbacks are
+unchanged. Every popup gets its own popup window sized for the items that menu
+actually contains, and updates that arrive while a menu is open no longer
+resize the menu being displayed (they apply to the next popup). The private
+manager is destroyed when the menu closes; if the UI string cannot be rebuilt
+the code falls back to the window's menu, so a popup is never lost.
+
+The widget level tweaks caja applies to the window's menu (the forced images
+of *Open* and of the application entries) are repeated for the new menu, so
+the popup looks the same as before. The old and new popup menus were compared
+with screenshots and are identical apart from the pointer/selection artefacts
+of the test.
+
+## Added feature: size of selected folders in the status bar
 
 **Files:** `libcaja-private/caja-file.c`, `libcaja-private/caja-file.h`,
 `libcaja-private/caja-file-private.h`,
@@ -102,43 +139,6 @@ Space: 198.0 GB`.)
 **Cost:** on the test machine a capped traversal took about 2 seconds for
 `/usr/share`. The status bar never blocks the UI; the count runs
 asynchronously.
-
-## 3. Fresh popup menu for every popup
-
-**Files:** `src/file-manager/fm-directory-view.c`
-
-**Symptom:** right-clicking sometimes shows a context menu with an empty row
-above and below the items, and the last entries silently disappear (the mouse
-wheel can still reach them). The next right click looks fine again.
-
-**Cause:** a `GtkMenu` that is already mapped keeps the size of its popup
-window when its items change — `GtkWindow` only re-negotiates the size while
-the menu is being popped up. The popup menus are long-lived children of the
-window's `GtkUIManager`, shared by every right click and by both panes in
-split view (F3), while a right click schedules a menu update (selection
-change, file info refresh, clipboard, extension or script signals) that runs
-one `update_interval` (100 ms by default) later — after the menu was popped
-up. When the items grow, the popup stays too small and `gtk_menu_scroll_to()`
-switches the menu into its "scrolling menu" mode: it reserves the scroll arrow
-areas above and below the items and clips the items that no longer fit. Most
-themes draw the insensitive arrow transparent, which looks like an empty row.
-
-**Fix:** build the popup menu from scratch for every popup. The items come
-from the window's merged UI (`gtk_ui_manager_get_ui()` returns the statically
-and dynamically merged items, including the open-with, script, template and
-extension ones) in a private `GtkUIManager` that shares the window's action
-groups, so labels, icons, sensitivities and the activation callbacks are
-unchanged. Every popup gets its own popup window sized for the items that menu
-actually contains, and updates that arrive while a menu is open no longer
-resize the menu being displayed (they apply to the next popup). The private
-manager is destroyed when the menu closes; if the UI string cannot be rebuilt
-the code falls back to the window's menu, so a popup is never lost.
-
-The widget level tweaks caja applies to the window's menu (the forced images
-of *Open* and of the application entries) are repeated for the new menu, so
-the popup looks the same as before. The old and new popup menus were compared
-with screenshots and are identical apart from the pointer/selection artefacts
-of the test.
 
 ## Building
 

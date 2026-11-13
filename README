@@ -6,7 +6,7 @@
 
 <p align="center"><b>The file manager for the MATE desktop</b><br>
 Personal fork of <a href="https://github.com/mate-desktop/caja">mate-desktop/caja</a>
-with three local fixes.</p>
+with two fixes and one added feature.</p>
 
 <p align="center">
   <a href="https://github.com/pasu11/caja/blob/master/COPYING"><img src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg" alt="License"></a>
@@ -19,16 +19,61 @@ small set of patches; upstream bugs should be reported
 
 | Branch | Base | Contents |
 | --- | --- | --- |
-| `master` (default) | upstream `master` (`4de76eb`) | upstream + the three fixes merged in + these docs |
-| `fixes-1.29.1` | upstream release tag `v1.29.1` | the 1.29.1 release + the same three fixes |
+| `master` (default) | upstream `master` (`4de76eb`) | upstream + the two fixes and the added feature merged in + these docs |
+| `fixes-1.29.1` | upstream release tag `v1.29.1` | the 1.29.1 release + the same changes |
 
-The three fixes are independent of each other and can be dropped individually.
+The changes are independent of each other and can be dropped individually.
 See [FIXES.md](FIXES.md) for the full technical description, the known limits
 and how to regenerate the patches.
 
 ## Fixes
 
-### 1. Folder size in the status bar
+### 1. Rename is no longer cancelled when the vertical scrollbar appears
+
+Fixes upstream issue [#1444](https://github.com/mate-desktop/caja/issues/1444).
+
+When the icons overflow the viewport by less than the icon/container padding
+(16 pixels in total), the preferred size and the actual scroll region
+disagree, so `GtkScrolledWindow` alternately shows and hides the scrollbar and
+re-lays out the view. Starting a rename triggers one more allocation pass; if
+that moves the icon being renamed, `icon_set_position_full()` calls
+`end_renaming_mode(container, TRUE)` and the rename is cancelled immediately.
+F2 and the context-menu entry therefore appeared to do nothing whenever the
+scrollbar was just starting to show.
+
+The fix computes the scroll region once (`get_scroll_region_bounds()`) and
+uses it both for the scroll region and for the preferred size, so the
+scrollbar decision always matches the real scrollable area.
+
+![Renaming an icon](docs/screenshots/rename.png)
+
+**File:** `libcaja-private/caja-icon-container.c`
+
+### 2. Context menu is rebuilt for every popup
+
+A mapped `GtkMenu` keeps the size of its popup window when its items change —
+GTK only re-negotiates the size while the menu is being popped up. The popup
+menus were long-lived children of the window's `GtkUIManager`, shared by every
+right click and by both panes in split view, while a right click schedules a
+menu update (selection, file info, clipboard, extension or script signals)
+that runs 100 ms later, after the menu was shown. The menu then stayed too
+small, `gtk_menu_scroll_to()` switched it into "scrolling menu" mode, and the
+last entries were clipped behind empty scroll rows.
+
+The popup menu is now built from scratch for every popup, from the window's
+merged UI in a private `GtkUIManager` that shares the window's action groups,
+so labels, icons, sensitivities and callbacks are unchanged. Updates that
+arrive while a menu is open apply to the next popup, and the previous menu
+keeps its size. If the UI string cannot be rebuilt, the code falls back to the
+window's menu.
+
+![Context menu](docs/screenshots/context-menu.png)
+
+**File:** `src/file-manager/fm-directory-view.c`
+
+## Added feature
+
+### Folder size in the status bar
 
 Selecting a folder now reports how much space it uses and how many entries it
 contains in the whole tree, in one comma-separated list. The recursive total
@@ -69,49 +114,6 @@ After (this fork):
 `caja-file-private.h`, `caja-directory-async.c`,
 `src/file-manager/fm-directory-view.c`, `fm-properties-window.c`
 
-### 2. Rename is no longer cancelled when the vertical scrollbar appears
-
-Fixes upstream issue [#1444](https://github.com/mate-desktop/caja/issues/1444).
-
-When the icons overflow the viewport by less than the icon/container padding
-(16 pixels in total), the preferred size and the actual scroll region
-disagree, so `GtkScrolledWindow` alternately shows and hides the scrollbar and
-re-lays out the view. Starting a rename triggers one more allocation pass; if
-that moves the icon being renamed, `icon_set_position_full()` calls
-`end_renaming_mode(container, TRUE)` and the rename is cancelled immediately.
-F2 and the context-menu entry therefore appeared to do nothing whenever the
-scrollbar was just starting to show.
-
-The fix computes the scroll region once (`get_scroll_region_bounds()`) and
-uses it both for the scroll region and for the preferred size, so the
-scrollbar decision always matches the real scrollable area.
-
-![Renaming an icon](docs/screenshots/rename.png)
-
-**File:** `libcaja-private/caja-icon-container.c`
-
-### 3. Context menu is rebuilt for every popup
-
-A mapped `GtkMenu` keeps the size of its popup window when its items change —
-GTK only re-negotiates the size while the menu is being popped up. The popup
-menus were long-lived children of the window's `GtkUIManager`, shared by every
-right click and by both panes in split view, while a right click schedules a
-menu update (selection, file info, clipboard, extension or script signals)
-that runs 100 ms later, after the menu was shown. The menu then stayed too
-small, `gtk_menu_scroll_to()` switched it into "scrolling menu" mode, and the
-last entries were clipped behind empty scroll rows.
-
-The popup menu is now built from scratch for every popup, from the window's
-merged UI in a private `GtkUIManager` that shares the window's action groups,
-so labels, icons, sensitivities and callbacks are unchanged. Updates that
-arrive while a menu is open apply to the next popup, and the previous menu
-keeps its size. If the UI string cannot be rebuilt, the code falls back to the
-window's menu.
-
-![Context menu](docs/screenshots/context-menu.png)
-
-**File:** `src/file-manager/fm-directory-view.c`
-
 ## Building
 
 The tree has no generated `configure` script, and `mate-submodules` (libegg)
@@ -149,7 +151,7 @@ This replaces the distribution package. To go back, reinstall the package
 The commits are the canonical patches:
 
 ```bash
-git format-patch v1.29.1..fixes-1.29.1   # individual fixes
+git format-patch v1.29.1..fixes-1.29.1   # individual patches
 ```
 
 The same three patches are attached to the
