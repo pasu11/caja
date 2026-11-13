@@ -11,6 +11,24 @@
 <p align="center"><b>The file manager for the MATE desktop</b></p>
 <div align="center"><img src="https://mate-desktop.org/gallery/1.24/english/007.png" alt="Caja Screenshot"></div>
 
+## This fork
+
+This is [pasu11/caja](https://github.com/pasu11/caja), a personal fork of
+[caja](https://github.com/mate-desktop/caja). It is not the upstream project:
+please report upstream bugs upstream.
+
+The `fixes-1.29.1` branch is the upstream **v1.29.1** release plus three local
+fixes; `master` is upstream `master` with the same three fixes merged in.
+
+| Fix | Files touched |
+| --- | --- |
+| Rename (F2 / context menu) is no longer cancelled when the vertical scrollbar appears ([upstream #1444](https://github.com/mate-desktop/caja/issues/1444)) | `libcaja-private/caja-icon-container.c` |
+| The status bar shows the recursive size and entry count of the selected folders | `libcaja-private/caja-file.[ch]`, `caja-file-private.h`, `caja-directory-async.c`, `src/file-manager/fm-directory-view.c`, `fm-properties-window.c` |
+| The context menu is rebuilt for every popup, so entries are no longer clipped or hidden behind empty scroll rows | `src/file-manager/fm-directory-view.c` |
+
+See [FIXES.md](FIXES.md) for the full description, known limits, build
+instructions and how to regenerate the patches.
+
 ## Installation
 
 ### Ubuntu
