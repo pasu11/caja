@@ -152,9 +152,8 @@ The commits are the canonical patches:
 git format-patch v1.29.1..fixes-1.29.1   # individual fixes
 ```
 
-The same patches are attached to the
-[releases](https://github.com/pasu11/caja/releases) page, including a combined
-patch for the upstream `master` base.
+The same three patches are attached to the
+[releases](https://github.com/pasu11/caja/releases) page.
 
 ## Upstream
 
