@@ -6296,13 +6296,231 @@ action_open_scripts_folder_callback (GtkAction *action,
 		 fm_directory_view_get_containing_window (view));
 }
 
+/* Sets "always show image" on every image menu item below @menu whose action
+ * is @action.
+ *
+ * caja forces the image of a few items on the widget instead of on the
+ * action (see fix_up_popup_menu()), so a menu that is built from scratch
+ * needs that again.
+ */
+static void
+set_always_show_image_below (GtkAction *action,
+			     GtkWidget *menu)
+{
+	const GSList *proxies, *l;
+
+	G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+	proxies = gtk_action_get_proxies (action);
+
+	for (l = proxies; l != NULL; l = l->next) {
+		GtkWidget *proxy = l->data;
+		GtkWidget *parent;
+
+		if (!GTK_IS_IMAGE_MENU_ITEM (proxy)) {
+			continue;
+		}
+
+		for (parent = gtk_widget_get_parent (proxy);
+		     parent != NULL && parent != menu;
+		     parent = gtk_widget_get_parent (parent));
+
+		if (parent != NULL) {
+			gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (proxy),
+								   TRUE);
+		}
+	}
+	G_GNUC_END_IGNORE_DEPRECATIONS;
+}
+
+/* Repeats the widget level tweaks that real_update_menus() and the open-with
+ * code apply to the window's own popup menu.
+ */
+static void
+fix_up_popup_menu (FMDirectoryView *view,
+		   GtkUIManager    *menu_manager,
+		   GtkWidget       *menu)
+{
+	GList *groups, *selection;
+	GtkWidget *menuitem;
+	GAppInfo *app = NULL;
+
+	G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+	/* The popup menus of the window are built here, but the actions are
+	 * the very same objects, so the items that force their image have to
+	 * force it on these proxies too. */
+	groups = gtk_ui_manager_get_action_groups (menu_manager);
+
+	while (groups != NULL) {
+		GList *actions, *l;
+
+		actions = gtk_action_group_list_actions (groups->data);
+
+		for (l = actions; l != NULL; l = l->next) {
+			const char *name;
+
+			name = gtk_action_get_name (GTK_ACTION (l->data));
+
+			if (g_str_has_prefix (name, "open_with_") ||
+			    strcmp (name, "open_location") == 0) {
+				set_always_show_image_below (GTK_ACTION (l->data), menu);
+			}
+		}
+
+		g_list_free (actions);
+		groups = groups->next;
+	}
+
+	/* "Open" only shows the icon of a real application, as in
+	 * real_update_menus(). */
+	selection = fm_directory_view_get_selection (view);
+	if (selection != NULL) {
+		app = caja_mime_get_default_application_for_files (selection);
+		caja_file_list_free (selection);
+	}
+
+	menuitem = gtk_ui_manager_get_widget (menu_manager,
+					      FM_DIRECTORY_VIEW_POPUP_PATH_OPEN);
+	if (menuitem != NULL) {
+		gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (menuitem),
+							   app != NULL);
+	}
+
+	if (app != NULL) {
+		g_object_unref (app);
+	}
+	G_GNUC_END_IGNORE_DEPRECATIONS;
+}
+
+/* Set on the private popup menu manager once its menu has been closed, so
+ * that the first of the "hide"/"destroy" handlers to run owns the cleanup. */
+#define POPUP_MENU_CLOSED "caja-popup-menu-closed"
+
+static gboolean
+destroy_popup_menu (gpointer data)
+{
+	GtkUIManager *menu_manager = data;
+	GtkWidget *menu;
+
+	menu = g_object_get_data (G_OBJECT (menu_manager), "caja-popup-menu");
+
+	if (menu != NULL) {
+		gtk_widget_destroy (menu);
+	}
+
+	return G_SOURCE_REMOVE;
+}
+
+static gboolean
+release_popup_menu (gpointer data)
+{
+	return G_SOURCE_REMOVE;
+}
+
+static void
+popup_menu_closed (GtkWidget *menu,
+		   gpointer   data)
+{
+	GtkUIManager *menu_manager = data;
+
+	if (g_object_get_data (G_OBJECT (menu_manager), POPUP_MENU_CLOSED) != NULL) {
+		return;
+	}
+	g_object_set_data (G_OBJECT (menu_manager), POPUP_MENU_CLOSED,
+			   GINT_TO_POINTER (TRUE));
+
+	/* The menu is closed from within its own signal emission (item
+	 * activation, popdown) and GTK may still use it afterwards, so let it
+	 * go from an idle.  The destroy notify of the idle drops the
+	 * reference on the private manager, which in turn frees the menu. */
+	g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, destroy_popup_menu, menu_manager,
+			 (GDestroyNotify) g_object_unref);
+}
+
+static void
+popup_menu_destroyed (GtkWidget *menu,
+		      gpointer   data)
+{
+	GtkUIManager *menu_manager = data;
+
+	if (g_object_get_data (G_OBJECT (menu_manager), POPUP_MENU_CLOSED) != NULL) {
+		return;
+	}
+	g_object_set_data (G_OBJECT (menu_manager), POPUP_MENU_CLOSED,
+			   GINT_TO_POINTER (TRUE));
+
+	g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, release_popup_menu, menu_manager,
+			 (GDestroyNotify) g_object_unref);
+}
+
+/* Builds the popup menu for @popup_path from scratch.
+ *
+ * A GtkMenu that is already mapped keeps the size of its popup window when
+ * its items change, because GtkWindow only re-negotiates the size while the
+ * menu is being popped up.  The window's popup menu is a long-lived child of
+ * the window's GtkUIManager that every popup uses, so when an update changed
+ * its items while the menu was on screen the popup stayed too small: GtkMenu
+ * then switched to its "scrolling menu" mode, which reserved the scroll arrow
+ * areas above and below the items (blank rows with most themes) and clipped
+ * the items that no longer fitted.
+ *
+ * Building a new menu for every popup gives GTK a popup window that is sized
+ * for the items this menu actually has.  The items are created from the
+ * window's merged UI (gtk_ui_manager_get_ui() returns all the statically and
+ * dynamically merged items) in a private GtkUIManager that shares the window's
+ * action groups, so labels, icons, sensitivities and callbacks are the same as
+ * before.  The private manager is kept alive until the menu has been closed
+ * and is destroyed afterwards.
+ */
 static GtkMenu *
 create_popup_menu (FMDirectoryView *view, const char *popup_path)
 {
+	GtkUIManager *ui_manager;
+	GtkUIManager *menu_manager;
 	GtkWidget *menu;
+	GList *groups;
+	char *ui;
+	GError *error = NULL;
 
-	menu = gtk_ui_manager_get_widget (caja_window_info_get_ui_manager (view->details->window),
-					  popup_path);
+	G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+	ui_manager = caja_window_info_get_ui_manager (view->details->window);
+
+	menu_manager = gtk_ui_manager_new ();
+
+	groups = gtk_ui_manager_get_action_groups (ui_manager);
+	while (groups != NULL) {
+		gtk_ui_manager_insert_action_group (menu_manager, groups->data, -1);
+		groups = groups->next;
+	}
+
+	ui = gtk_ui_manager_get_ui (ui_manager);
+
+	menu = NULL;
+	if (gtk_ui_manager_add_ui_from_string (menu_manager, ui, -1, &error)) {
+		menu = gtk_ui_manager_get_widget (menu_manager, popup_path);
+	} else {
+		g_warning ("Could not build a popup menu, using the one of the "
+			   "window instead: %s", error->message);
+		g_error_free (error);
+	}
+	g_free (ui);
+
+	if (menu == NULL) {
+		g_object_unref (menu_manager);
+
+		menu = gtk_ui_manager_get_widget (ui_manager, popup_path);
+	} else {
+		fix_up_popup_menu (view, menu_manager, menu);
+
+		/* The reference on the manager is dropped once the menu is gone; see
+		 * popup_menu_closed(). */
+		g_object_set_data (G_OBJECT (menu_manager), "caja-popup-menu", menu);
+		g_signal_connect_data (menu, "hide", G_CALLBACK (popup_menu_closed),
+				       menu_manager, NULL, 0);
+		g_signal_connect_data (menu, "destroy", G_CALLBACK (popup_menu_destroyed),
+				       menu_manager, NULL, 0);
+	}
+	G_GNUC_END_IGNORE_DEPRECATIONS;
+
 	gtk_menu_set_screen (GTK_MENU (menu),
 			     gtk_widget_get_screen (GTK_WIDGET (view)));
 	gtk_widget_show (GTK_WIDGET (menu));
