@@ -104,8 +104,9 @@ After (this fork):
   trash.
 * Walking a whole tree is bounded: the traversal starts after the selection
   has been stable for 300 ms and stops after 10000 directory entries or
-  3 seconds. A truncated result is presented as a lower bound
-  (`>10k total`, `>10.2 MB`), and the properties window marks it as
+  3 seconds. A truncated result is presented as a lower bound, with the
+  marker after the number and a compact entry count (`10k↑ total`,
+  `994.9↑ MB`); the properties window marks it as
   `Contents: ≥ 10,000 items (calculating…)` until its own unlimited recount
   finishes.
 * The capitalization of the free-space label is normalized (`Free Space`).
@@ -154,7 +155,10 @@ The commits are the canonical patches:
 git format-patch v1.29.1..fixes-1.29.1   # individual patches
 ```
 
-The same three patches are attached to the
+The branch also carries a follow-up commit that moves the status-bar
+lower-bound marker behind the number, so it has one more commit than the
+three patches. The same three patches (with that follow-up folded in) are
+attached to the
 [releases](https://github.com/pasu11/caja/releases) page.
 
 ## Upstream
