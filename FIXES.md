@@ -185,7 +185,7 @@ bar menu is built.
 **Patch:** `caja-1.29.1-open-real-location.patch` (applies after the three
 commits listed above).
 
-## Added feature: paste clipboard items as symbolic links
+## Added feature: paste items/folders as symbolic links
 
 **Files:** `src/file-manager/fm-actions.h`,
 `src/file-manager/fm-directory-view.c`,

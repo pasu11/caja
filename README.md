@@ -145,7 +145,7 @@ The new strings carry a `zh_CN` translation.
 **Files:** `src/file-manager/fm-actions.h`, `fm-directory-view.c`,
 `caja-directory-view-ui.xml`, `po/zh_CN.po`
 
-### Paste clipboard items as links
+### Paste items/folders as links
 
 The background context menu has a new entry right below *Paste*: *Paste
 Link/s* pastes every copied item as a symbolic link instead of a copy or a
