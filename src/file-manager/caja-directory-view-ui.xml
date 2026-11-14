@@ -124,6 +124,8 @@
 
 	<separator name="Folder Items separator"/>
 	<placeholder name="Folder Items Placeholder">
+		<menuitem name="BackgroundOpenRealLocationInNewTab" action="LocationOpenRealLocationInNewTab"/>
+		<menuitem name="BackgroundOpenRealLocationInNewWindow" action="LocationOpenRealLocationInNewWindow"/>
 		<menuitem name="Self Mount Volume" action="Self Mount Volume"/>
 		<menuitem name="Self Unmount Volume" action="Self Unmount Volume"/>
 		<menuitem name="Self Eject Volume" action="Self Eject Volume"/>
@@ -142,6 +144,8 @@
 		<menuitem name="OpenInNewTab" action="OpenInNewTab"/>
 		<menuitem name="OpenAlternate" action="OpenAlternate"/>
 		<menuitem name="OpenFolderWindow" action="OpenFolderWindow"/>
+		<menuitem name="OpenRealLocationInNewTab" action="OpenRealLocationInNewTab"/>
+		<menuitem name="OpenRealLocationInNewWindow" action="OpenRealLocationInNewWindow"/>
 		<separator name="applications separator"/>
 		<placeholder name="Applications Placeholder"/>
 		<menu action="Open With">
@@ -209,6 +213,8 @@
 		<menuitem name="LocationOpenInNewTab" action="LocationOpenInNewTab"/>
 		<menuitem name="LocationOpenAlternate" action="LocationOpenAlternate"/>
 		<menuitem name="LocationOpenFolderWindow" action="LocationOpenFolderWindow"/>
+		<menuitem name="LocationOpenRealLocationInNewTab" action="LocationOpenRealLocationInNewTab"/>
+		<menuitem name="LocationOpenRealLocationInNewWindow" action="LocationOpenRealLocationInNewWindow"/>
 	</placeholder>
 	<separator name="Location After Open Separator"/>
 	<placeholder name="Clipboard Actions">

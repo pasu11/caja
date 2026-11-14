@@ -6335,6 +6335,30 @@ msgstr "在文件夹窗口中打开(_F)"
 msgid "Open each selected item in a folder window"
 msgstr "在文件夹窗口中打开选中的每个项目"
 
+#: src/file-manager/fm-directory-view.c:8122
+msgid "Open Real Location in New _Tab"
+msgstr "在新标签页中打开真实位置(_T)"
+
+#: src/file-manager/fm-directory-view.c:8123
+msgid "Open the target folder of each selected symbolic link in a new tab"
+msgstr "在新标签页中打开选中的每个符号链接所指向的文件夹"
+
+#: src/file-manager/fm-directory-view.c:8126
+msgid "Open Real Location in New _Window"
+msgstr "在新窗口中打开真实位置(_W)"
+
+#: src/file-manager/fm-directory-view.c:8127
+msgid "Open the target folder of each selected symbolic link in a new window"
+msgstr "在新窗口中打开选中的每个符号链接所指向的文件夹"
+
+#: src/file-manager/fm-directory-view.c:8316
+msgid "Open this folder's real location in a new tab"
+msgstr "在新标签页中打开该文件夹的真实位置"
+
+#: src/file-manager/fm-directory-view.c:8321
+msgid "Open this folder's real location in a new window"
+msgstr "在新窗口中打开该文件夹的真实位置"
+
 #: src/file-manager/fm-directory-view.c:7411
 msgid "Other _Application..."
 msgstr "其它程序(_A)..."

@@ -29,6 +29,7 @@
 
 #include <config.h>
 #include <math.h>
+#include <stdlib.h>
 
 #include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
@@ -900,6 +901,181 @@ open_location (FMDirectoryView *directory_view,
 	caja_window_slot_info_open_location (directory_view->details->slot,
 						 location, mode, flags, NULL);
 	g_object_unref (location);
+}
+
+/* Opens @uri at its canonical location, in a new tab or in a new window. */
+static void
+open_real_location (FMDirectoryView *view,
+		    const char *uri,
+		    gboolean new_tab)
+{
+	if (new_tab) {
+		open_location (view, uri,
+			       CAJA_WINDOW_OPEN_ACCORDING_TO_MODE,
+			       CAJA_WINDOW_OPEN_FLAG_NEW_TAB);
+	} else {
+		open_location (view, uri, CAJA_WINDOW_OPEN_IN_NAVIGATION, 0);
+	}
+}
+
+/* Returns the canonical path of @location (all symbolic links resolved), or
+ * NULL when the location is not local or cannot be resolved (e.g. a broken
+ * link or a folder without search permission). */
+static char *
+get_canonical_path (GFile *location)
+{
+	char *path;
+	char *canonical_path;
+
+	if (!g_file_is_native (location)) {
+		return NULL;
+	}
+
+	path = g_file_get_path (location);
+	if (path == NULL) {
+		return NULL;
+	}
+
+	canonical_path = realpath (path, NULL);
+	g_free (path);
+
+	return canonical_path;
+}
+
+/* Whether the path of @file contains a symbolic link, i.e. whether its
+ * canonical path differs from the path shown in the location bar. */
+static gboolean
+file_path_has_symlinks (CajaFile *file)
+{
+	GFile *location;
+	char *path;
+	char *canonical_path;
+	gboolean has_symlinks;
+
+	if (file == NULL) {
+		return FALSE;
+	}
+
+	location = caja_file_get_location (file);
+	path = g_file_get_path (location);
+	canonical_path = get_canonical_path (location);
+	g_object_unref (location);
+
+	has_symlinks = FALSE;
+	if (path != NULL && canonical_path != NULL) {
+		has_symlinks = (strcmp (path, canonical_path) != 0);
+	}
+
+	g_free (path);
+	g_free (canonical_path);
+
+	return has_symlinks;
+}
+
+/* Returns the canonical uri of @file, or NULL when it has none. */
+static char *
+file_get_canonical_uri (CajaFile *file)
+{
+	GFile *location;
+	char *canonical_path;
+	char *uri;
+
+	if (file == NULL) {
+		return NULL;
+	}
+
+	location = caja_file_get_location (file);
+	canonical_path = get_canonical_path (location);
+	g_object_unref (location);
+
+	if (canonical_path == NULL) {
+		return NULL;
+	}
+
+	uri = g_filename_to_uri (canonical_path, NULL, NULL);
+	g_free (canonical_path);
+
+	return uri;
+}
+
+static void
+open_selected_real_locations (FMDirectoryView *view,
+			      gboolean new_tab)
+{
+	GList *selection;
+	GList *l;
+	GtkWindow *window;
+
+	selection = fm_directory_view_get_selection (view);
+	window = fm_directory_view_get_containing_window (view);
+
+	if (!fm_directory_view_confirm_multiple (window,
+						 g_list_length (selection),
+						 new_tab)) {
+		caja_file_list_free (selection);
+		return;
+	}
+
+	for (l = selection; l != NULL; l = l->next) {
+		char *uri;
+
+		uri = file_get_canonical_uri (CAJA_FILE (l->data));
+		if (uri != NULL) {
+			open_real_location (view, uri, new_tab);
+			g_free (uri);
+		}
+	}
+
+	caja_file_list_free (selection);
+}
+
+static void
+open_current_real_location (FMDirectoryView *view,
+			    gboolean new_tab)
+{
+	CajaFile *file;
+	char *uri;
+
+	file = view->details->location_popup_directory_as_file;
+	if (file == NULL) {
+		file = fm_directory_view_get_directory_as_file (view);
+	}
+
+	uri = file_get_canonical_uri (file);
+	if (uri == NULL) {
+		return;
+	}
+
+	open_real_location (view, uri, new_tab);
+	g_free (uri);
+}
+
+static void
+action_open_real_location_new_tab_callback (GtkAction *action,
+					    gpointer   callback_data)
+{
+	open_selected_real_locations (FM_DIRECTORY_VIEW (callback_data), TRUE);
+}
+
+static void
+action_open_real_location_new_window_callback (GtkAction *action,
+					       gpointer   callback_data)
+{
+	open_selected_real_locations (FM_DIRECTORY_VIEW (callback_data), FALSE);
+}
+
+static void
+action_location_open_real_location_new_tab_callback (GtkAction *action,
+						     gpointer   callback_data)
+{
+	open_current_real_location (FM_DIRECTORY_VIEW (callback_data), TRUE);
+}
+
+static void
+action_location_open_real_location_new_window_callback (GtkAction *action,
+							gpointer   callback_data)
+{
+	open_current_real_location (FM_DIRECTORY_VIEW (callback_data), FALSE);
 }
 
 static void
@@ -7942,6 +8118,14 @@ static const GtkActionEntry directory_view_entries[] = {
   /* label, accelerator */       N_("Open in _Folder Window"), NULL,
   /* tooltip */                  N_("Open each selected item in a folder window"),
                                  G_CALLBACK (action_open_folder_window_callback) },
+  /* name, icon name */        { FM_ACTION_OPEN_REAL_LOCATION_IN_NEW_TAB, NULL,
+  /* label, accelerator */       N_("Open Real Location in New _Tab"), NULL,
+  /* tooltip */                  N_("Open the target folder of each selected symbolic link in a new tab"),
+                                 G_CALLBACK (action_open_real_location_new_tab_callback) },
+  /* name, icon name */        { FM_ACTION_OPEN_REAL_LOCATION_IN_NEW_WINDOW, NULL,
+  /* label, accelerator */       N_("Open Real Location in New _Window"), NULL,
+  /* tooltip */                  N_("Open the target folder of each selected symbolic link in a new window"),
+                                 G_CALLBACK (action_open_real_location_new_window_callback) },
   /* name, icon name */        { "OtherApplication1", NULL,
   /* label, accelerator */       N_("Other _Application..."), NULL,
   /* tooltip */                  N_("Choose another application with which to open the selected item"),
@@ -8127,6 +8311,16 @@ static const GtkActionEntry directory_view_entries[] = {
   /* tooltip */                  N_("Open this folder in a folder window"),
                                  G_CALLBACK (action_location_open_folder_window_callback) },
 
+  /* name, icon name */        { FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_TAB, NULL,
+  /* label, accelerator */       N_("Open Real Location in New _Tab"), "",
+  /* tooltip */                  N_("Open this folder's real location in a new tab"),
+                                 G_CALLBACK (action_location_open_real_location_new_tab_callback) },
+
+  /* name, icon name */        { FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_WINDOW, NULL,
+  /* label, accelerator */       N_("Open Real Location in New _Window"), "",
+  /* tooltip */                  N_("Open this folder's real location in a new window"),
+                                 G_CALLBACK (action_location_open_real_location_new_window_callback) },
+
   /* name, icon name */        { FM_ACTION_LOCATION_CUT, "edit-cut",
   /* label, accelerator */       N_("Cu_t"), "",
   /* tooltip */                  N_("Prepare this folder to be moved with a Paste command"),
@@ -8308,6 +8502,17 @@ real_merge_menus (FMDirectoryView *view)
 
 	action = gtk_action_group_get_action (action_group, FM_ACTION_NO_TEMPLATES);
 	gtk_action_set_sensitive (action, FALSE);
+
+	/* Shown only when the selection or the open folder is a symbolic link;
+	 * see real_update_menus() and real_update_location_menu(). */
+	action = gtk_action_group_get_action (action_group, FM_ACTION_OPEN_REAL_LOCATION_IN_NEW_TAB);
+	gtk_action_set_visible (action, FALSE);
+	action = gtk_action_group_get_action (action_group, FM_ACTION_OPEN_REAL_LOCATION_IN_NEW_WINDOW);
+	gtk_action_set_visible (action, FALSE);
+	action = gtk_action_group_get_action (action_group, FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_TAB);
+	gtk_action_set_visible (action, FALSE);
+	action = gtk_action_group_get_action (action_group, FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_WINDOW);
+	gtk_action_set_visible (action, FALSE);
 	G_GNUC_END_IGNORE_DEPRECATIONS;
 
 	g_signal_connect_object (action_group, "connect-proxy",
@@ -9232,6 +9437,17 @@ real_update_location_menu (FMDirectoryView *view)
 	action = gtk_action_group_get_action (view->details->dir_action_group,
 					      FM_ACTION_LOCATION_OPEN_FOLDER_WINDOW);
 	gtk_action_set_visible (action, show_open_folder_window);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_TAB);
+	gtk_action_set_visible (action,
+				file_path_has_symlinks (view->details->location_popup_directory_as_file) &&
+				caja_window_info_get_window_type (view->details->window) == CAJA_WINDOW_NAVIGATION);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_WINDOW);
+	gtk_action_set_visible (action,
+				file_path_has_symlinks (view->details->location_popup_directory_as_file));
 	G_GNUC_END_IGNORE_DEPRECATIONS;
 
 	file = view->details->location_popup_directory_as_file;
@@ -9393,6 +9609,8 @@ real_update_menus (FMDirectoryView *view)
 	gboolean save_search_sensitive;
 	gboolean show_save_search_as;
 	gboolean show_open_folder_window;
+	gboolean show_open_real_location;
+	gboolean show_location_open_real_location;
 	GtkAction *action;
 	GAppInfo *app;
 	GIcon *app_icon;
@@ -9521,6 +9739,21 @@ real_update_menus (FMDirectoryView *view)
 				selection_count > 0 &&
 				!(caja_window_info_get_window_type (view->details->window) == CAJA_WINDOW_DESKTOP &&
 					g_settings_get_boolean (caja_preferences, CAJA_PREFERENCES_ALWAYS_USE_BROWSER));
+
+	show_open_real_location = FALSE;
+	for (l = selection; l != NULL; l = l->next) {
+		CajaFile *file;
+
+		file = CAJA_FILE (l->data);
+		if (caja_file_is_symbolic_link (file) &&
+		    caja_file_is_directory (file)) {
+			show_open_real_location = TRUE;
+			break;
+		}
+	}
+
+	show_location_open_real_location =
+		file_path_has_symlinks (fm_directory_view_get_directory_as_file (view));
 	show_open_folder_window = FALSE;
 	if (caja_window_info_get_window_type (view->details->window) == CAJA_WINDOW_NAVIGATION) {
 		if (g_settings_get_boolean (caja_preferences, CAJA_PREFERENCES_ALWAYS_USE_BROWSER)) {
@@ -9613,6 +9846,26 @@ real_update_menus (FMDirectoryView *view)
 	action = gtk_action_group_get_action (view->details->dir_action_group,
 					      FM_ACTION_OPEN_FOLDER_WINDOW);
 	gtk_action_set_visible (action, show_open_folder_window);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_OPEN_REAL_LOCATION_IN_NEW_TAB);
+	gtk_action_set_visible (action,
+				show_open_real_location &&
+				caja_window_info_get_window_type (view->details->window) == CAJA_WINDOW_NAVIGATION);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_OPEN_REAL_LOCATION_IN_NEW_WINDOW);
+	gtk_action_set_visible (action, show_open_real_location);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_TAB);
+	gtk_action_set_visible (action,
+				show_location_open_real_location &&
+				caja_window_info_get_window_type (view->details->window) == CAJA_WINDOW_NAVIGATION);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_LOCATION_OPEN_REAL_LOCATION_IN_NEW_WINDOW);
+	gtk_action_set_visible (action, show_location_open_real_location);
 	G_GNUC_END_IGNORE_DEPRECATIONS;
 
 	/* Broken into its own function just for convenience */
