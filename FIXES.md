@@ -95,7 +95,7 @@ Space: 198.0 GB`.)
 ```
 "Photos" (3 items, 3 total, 5.4 kB) Free Space: 198.0 GB
 "Photos" (3 items, 1,234 total, 5.4 kB) Free Space: 198.0 GB
-"Photos" (1 item, >10k total, >10.2 MB) Free Space: 198.0 GB
+"Photos" (1 item, 10k↑ total, 10.2 MB↑) Free Space: 198.0 GB
 "Empty" (0 items) Free Space: 198.0 GB
 ```
 
@@ -122,8 +122,8 @@ Space: 198.0 GB`.)
 * Walking a whole tree is bounded per request: the traversal only starts once
   the selection has been stable for 300 ms, and it stops after 10000 directory
   entries or 3 seconds, whichever comes first. A truncated result is shown as
-  a lower bound with `>` and a compact entry count (`>10k total`, `>10.2 MB`)
-  so the line does not grow by four digits.
+  a lower bound with `↑` and a compact entry count (`10k↑ total`,
+  `10.2 MB↑`) so the line does not grow by four digits.
 * Such a truncated result must not be mistaken for an exact one, so the
   properties window marks it as a lower bound too
   (`Contents: ≥ 10,000 items (calculating…)`) until its own unlimited recount

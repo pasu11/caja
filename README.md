@@ -105,8 +105,8 @@ After (this fork):
 * Walking a whole tree is bounded: the traversal starts after the selection
   has been stable for 300 ms and stops after 10000 directory entries or
   3 seconds. A truncated result is presented as a lower bound, with the
-  marker after the number and a compact entry count (`10k↑ total`,
-  `994.9↑ MB`); the properties window marks it as
+  marker after the number for the count and after the unit for the size
+  (`10k↑ total`, `994.9 MB↑`); the properties window marks it as
   `Contents: ≥ 10,000 items (calculating…)` until its own unlimited recount
   finishes.
 * The capitalization of the free-space label is normalized (`Free Space`).
