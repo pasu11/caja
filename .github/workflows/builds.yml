@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - master
+      - fixes-1.29.1
   pull_request:
     branches:
       - master
+      - fixes-1.29.1
   workflow_dispatch:
 
 # cancel already running builds of the same branch or pull request
