@@ -2,10 +2,10 @@
 
 This repository is a fork of [caja](https://github.com/mate-desktop/caja).
 
-* Branch `fixes-1.29.1` = upstream tag `v1.29.1` + the three commits listed
+* Branch `fixes-1.29.1` = upstream tag `v1.29.1` + the commits listed
   below. Nothing else is changed: the tree is the upstream release tree with
   those commits applied.
-* Branch `master` = upstream `master` with the same three commits merged in.
+* Branch `master` = upstream `master` with the same commits merged in.
   It also carries everything upstream added between `v1.29.1` and `master`,
   so the patches were merged rather than just applied to the 1.29.1 tree.
 
@@ -17,6 +17,8 @@ other and can be dropped individually.
 | 1 | `icon-container: Fix renaming when the scrollbar just appears` | [#1444](https://github.com/mate-desktop/caja/issues/1444) |
 | 2 | `file-manager: Build a fresh popup menu for every popup` | – |
 | 3 | `fm-directory-view: Show the size of selected folders in the status bar` | – |
+| 4 | `file-manager: Add "Open Real Location" to the context menus` | – |
+| 5 | `file-manager: Add "Paste Link/s" to the background menu` | – |
 
 ## 1. Rename is cancelled when the scrollbar just appears
 
@@ -184,6 +186,37 @@ bar menu is built.
 **Patch:** `caja-1.29.1-open-real-location.patch` (applies after the three
 commits listed above).
 
+## Added feature: paste clipboard items as symbolic links
+
+**Files:** `src/file-manager/fm-actions.h`,
+`src/file-manager/fm-directory-view.c`,
+`src/file-manager/caja-directory-view-ui.xml`, `po/zh_CN.po`
+
+Before this change the clipboard could only be pasted as copies or moves, and
+*Make Link* only linked the current selection in place (and named the link
+*Link to &lt;name&gt;*). The background context menu now has **Paste Link/s**
+right below *Paste*: the clipboard's
+`x-special/mate-copied-files` URI list is handed to
+`caja_file_operations_copy_move()` with `GDK_ACTION_LINK`, the same code path
+*Make Link* uses, so the progress dialog, the error dialogs and the undo stack
+entry come along.
+
+Naming follows the existing link code: pasting into another folder creates a
+link with the original name, pasting into the same folder creates *Link to
+&lt;name&gt;*, and collisions are numbered (*Link to &lt;name&gt;*, *Another link
+to &lt;name&gt;*, ...). Remote clipboard URIs fail with Caja's *Symbolic links
+only supported for local files* dialog. The item is insensitive in read-only
+folders and while the clipboard holds no copied files, like *Paste*. A cut
+clipboard is not cleared when pasting links, so the items can still be moved
+afterwards. The new strings carry a `zh_CN` translation.
+
+
+**Cost:** one symbolic link per clipboard item; no extra I/O while the menu
+is closed.
+
+**Patch:** `caja-1.29.1-paste-links.patch` (applies after the commits and the
+patch listed above).
+
 ## Building
 
 The tree has no generated `configure` script; run `autoreconf` first.
@@ -219,7 +252,8 @@ They can also be applied to a pristine 1.29.1 tree with `git am` or
 the third applies on its own with zero offsets, and after the other two with an
 offset on `src/file-manager/fm-directory-view.c` (the status bar patch inserts
 code above `create_popup_menu()`), because it only touches the popup menu
-construction.
+construction. The fourth applies after the third with a -13 line offset; the
+fifth applies after the fourth with zero offsets.
 
 The result is byte-identical to the compiled and smoke-tested patched tree:
 status bar text (including truncated counts) and popup menus were checked on
