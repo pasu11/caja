@@ -6,7 +6,7 @@
 
 <p align="center"><b>The file manager for the MATE desktop</b><br>
 Personal fork of <a href="https://github.com/mate-desktop/caja">mate-desktop/caja</a>
-with two fixes and two added features.</p>
+with two fixes and three added features.</p>
 
 <p align="center">
   <a href="https://github.com/pasu11/caja/blob/master/COPYING"><img src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg" alt="License"></a>
@@ -19,7 +19,7 @@ small set of patches; upstream bugs should be reported
 
 | Branch | Base | Contents |
 | --- | --- | --- |
-| `master` (default) | upstream `master` (`4de76eb`) | upstream + the two fixes and the two added features merged in + these docs |
+| `master` (default) | upstream `master` (`4de76eb`) | upstream + the two fixes and the three added features merged in + these docs |
 | `fixes-1.29.1` | upstream release tag `v1.29.1` | the 1.29.1 release + the same changes |
 
 The changes are independent of each other and can be dropped individually.
@@ -145,6 +145,29 @@ The new strings carry a `zh_CN` translation.
 **Files:** `src/file-manager/fm-actions.h`, `fm-directory-view.c`,
 `caja-directory-view-ui.xml`, `po/zh_CN.po`
 
+### Paste clipboard items as links
+
+The background context menu has a new entry right below *Paste*: *Paste
+Link/s* pastes every copied item as a symbolic link instead of a copy or a
+move. It uses the same link code as *Make Link* (`GDK_ACTION_LINK`), so the
+progress dialog, the error dialogs and the undo stack entry behave the same
+way.
+
+Pasting into another folder creates a link with the item's original name;
+pasting into the same folder creates *Link to <name>*, and name collisions
+are numbered (*Link to <name>*, *Another link to <name>*, ...). Remote items
+report Caja's *Symbolic links only supported for local files* error. The entry
+is insensitive in read-only folders and while the clipboard holds no copied
+files, like *Paste*; a cut clipboard is not cleared, so the items can still be
+moved afterwards.
+
+![Paste Link/s in the background context menu](docs/screenshots/paste-link.png)
+
+The new strings carry a `zh_CN` translation.
+
+**Files:** `src/file-manager/fm-actions.h`, `fm-directory-view.c`,
+`caja-directory-view-ui.xml`, `po/zh_CN.po`
+
 ## Building
 
 The tree has no generated `configure` script, and `mate-submodules` (libegg)
@@ -191,9 +214,9 @@ three patches. The same three patches (with that follow-up folded in) are
 attached to the
 [releases](https://github.com/pasu11/caja/releases) page.
 
-The real-location feature is not a branch commit yet; it is carried as
-`caja-1.29.1-open-real-location.patch`, which applies after the three patches
-above.
+The real-location and paste-links features are not branch commits yet; they
+are carried as `caja-1.29.1-open-real-location.patch` and
+`caja-1.29.1-paste-links.patch`, which apply after the three patches above.
 
 ## Upstream
 

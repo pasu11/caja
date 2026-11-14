@@ -201,6 +201,8 @@ right below *Paste*: the clipboard's
 *Make Link* uses, so the progress dialog, the error dialogs and the undo stack
 entry come along.
 
+![Paste Link/s in the background context menu](docs/screenshots/paste-link.png)
+
 Naming follows the existing link code: pasting into another folder creates a
 link with the original name, pasting into the same folder creates *Link to
 &lt;name&gt;*, and collisions are numbered (*Link to &lt;name&gt;*, *Another link
