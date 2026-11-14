@@ -28,7 +28,7 @@ and how to regenerate the patches.
 
 ## Fixes
 
-### 1. Rename is no longer cancelled when the vertical scrollbar appears
+### 1. Unable to rename when scroll bar appear and padding is less than 16 pixels.
 
 Fixes upstream issue [#1444](https://github.com/mate-desktop/caja/issues/1444).
 
@@ -49,7 +49,7 @@ scrollbar decision always matches the real scrollable area.
 
 **File:** `libcaja-private/caja-icon-container.c`
 
-### 2. Context menu is rebuilt for every popup
+### 2. Context menu shows scroll bar bugs.
 
 A mapped `GtkMenu` keeps the size of its popup window when its items change —
 GTK only re-negotiates the size while the menu is being popped up. The popup
@@ -73,7 +73,7 @@ window's menu.
 
 ## Added feature
 
-### Folder size in the status bar
+### Status bar now shows total items and sizes.
 
 Selecting a folder now reports how much space it uses and how many entries it
 contains in the whole tree, in one comma-separated list. The recursive total
