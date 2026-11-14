@@ -9,7 +9,7 @@ Personal fork of <a href="https://github.com/mate-desktop/caja">mate-desktop/caj
 with two fixes and three added features.</p>
 
 <p align="center">
-  <a href="https://github.com/pasu11/caja/blob/master/COPYING"><img src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg" alt="License"></a>
+  <a href="https://github.com/pasu11/caja/blob/fixes-1.29.1/COPYING"><img src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg" alt="License"></a>
   <a href="https://github.com/mate-desktop/caja"><img src="https://img.shields.io/badge/upstream-mate--desktop%2Fcaja-informational.svg" alt="Upstream"></a>
 </p>
 
@@ -19,8 +19,8 @@ small set of patches; upstream bugs should be reported
 
 | Branch | Base | Contents |
 | --- | --- | --- |
-| `master` (default) | upstream `master` (`4de76eb`) | unmodified upstream clone; no local changes |
-| `fixes-1.29.1` | upstream release tag `v1.29.1` | the 1.29.1 release + the two fixes and the three added features + these docs |
+| `fixes-1.29.1` (default) | upstream release tag `v1.29.1` | the 1.29.1 release + the two fixes and the three added features + these docs |
+| `master` | upstream `master` (`4de76eb`) | unmodified upstream clone; no local changes |
 
 The changes are independent of each other and can be dropped individually.
 See [FIXES.md](FIXES.md) for the full technical description, the known limits
