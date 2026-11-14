@@ -5,9 +5,8 @@ This repository is a fork of [caja](https://github.com/mate-desktop/caja).
 * Branch `fixes-1.29.1` = upstream tag `v1.29.1` + the commits listed
   below. Nothing else is changed: the tree is the upstream release tree with
   those commits applied.
-* Branch `master` = upstream `master` with the same commits merged in.
-  It also carries everything upstream added between `v1.29.1` and `master`,
-  so the patches were merged rather than just applied to the 1.29.1 tree.
+* Branch `master` is an unmodified clone of upstream `master`; it carries
+  no local changes.
 
 The changes were written for the 1.29.1 tree. They are independent of each
 other and can be dropped individually.

@@ -19,8 +19,8 @@ small set of patches; upstream bugs should be reported
 
 | Branch | Base | Contents |
 | --- | --- | --- |
-| `master` (default) | upstream `master` (`4de76eb`) | upstream + the two fixes and the three added features merged in + these docs |
-| `fixes-1.29.1` | upstream release tag `v1.29.1` | the 1.29.1 release + the same changes |
+| `master` (default) | upstream `master` (`4de76eb`) | unmodified upstream clone; no local changes |
+| `fixes-1.29.1` | upstream release tag `v1.29.1` | the 1.29.1 release + the two fixes and the three added features + these docs |
 
 The changes are independent of each other and can be dropped individually.
 See [FIXES.md](FIXES.md) for the full technical description, the known limits
