@@ -2398,6 +2398,30 @@ format_deep_count_bound (guint count)
 	return g_strdup_printf ("%u", count);
 }
 
+/* Mark a size that stopped at the traversal limit as a lower bound.  The
+ * arrow goes between the number and its unit, e.g. "10.2 MB" ->
+ * "10.2↑ MB", so that the value keeps its usual shape. */
+static char *
+format_deep_size_bound (const char *size_string)
+{
+	gsize number_len;
+	char *number;
+	char *result;
+
+	/* g_format_size() separates the number from its unit with a space (a
+	 * no-break or narrow no-break space in some locales); keep that
+	 * separator after the arrow. */
+	number_len = strcspn (size_string, " \xc2\xe2");
+	number = g_strndup (size_string, number_len);
+
+	/* Translators: the arrow means the real value is larger; the counting
+	 * stopped early.  %s is a number, the second %s the space and the unit. */
+	result = g_strdup_printf (_("%s↑%s"), number, size_string + number_len);
+	g_free (number);
+
+	return result;
+}
+
 /**
  * fm_directory_view_display_selection_info:
  *
@@ -2550,9 +2574,7 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 			if (folder_size_truncated) {
 				char *plain;
 
-				/* Translators: the leading > means the real value is
-				 * larger; the counting stopped early. */
-				plain = g_strdup_printf (_(">%s"), size_string);
+				plain = format_deep_size_bound (size_string);
 				g_free (size_string);
 				size_string = plain;
 			}
@@ -2563,13 +2585,13 @@ fm_directory_view_display_selection_info (FMDirectoryView *view)
 				/* Translators: the number of entries in the whole tree
 				 * (subfolders included), e.g. "1,234 total".  It is
 				 * shown even when it equals the number of direct entries.
-				 * The leading > means the count stopped early and the
-				 * real value is larger; "k" stands for a thousand. */
+				 * The trailing arrow means the count stopped early and
+				 * the real value is larger; "k" stands for a thousand. */
 				if (folder_size_truncated) {
 					char *bound;
 
 					bound = format_deep_count_bound (folder_recursive_count);
-					folder_total_str = g_strdup_printf (_(">%s total"), bound);
+					folder_total_str = g_strdup_printf (_("%s↑ total"), bound);
 					g_free (bound);
 				} else {
 					folder_total_str = g_strdup_printf (_("%'d total"),
