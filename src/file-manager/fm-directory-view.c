@@ -2575,27 +2575,14 @@ format_deep_count_bound (guint count)
 }
 
 /* Mark a size that stopped at the traversal limit as a lower bound.  The
- * arrow goes between the number and its unit, e.g. "10.2 MB" ->
- * "10.2↑ MB", so that the value keeps its usual shape. */
+ * arrow goes after the unit, e.g. "10.2 MB" -> "10.2 MB↑", so that the
+ * number keeps its usual shape. */
 static char *
 format_deep_size_bound (const char *size_string)
 {
-	gsize number_len;
-	char *number;
-	char *result;
-
-	/* g_format_size() separates the number from its unit with a space (a
-	 * no-break or narrow no-break space in some locales); keep that
-	 * separator after the arrow. */
-	number_len = strcspn (size_string, " \xc2\xe2");
-	number = g_strndup (size_string, number_len);
-
 	/* Translators: the arrow means the real value is larger; the counting
-	 * stopped early.  %s is a number, the second %s the space and the unit. */
-	result = g_strdup_printf (_("%s↑%s"), number, size_string + number_len);
-	g_free (number);
-
-	return result;
+	 * stopped early.  %s is a size such as "10.2 MB". */
+	return g_strdup_printf (_("%s↑"), size_string);
 }
 
 /**
