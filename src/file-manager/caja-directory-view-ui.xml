@@ -119,6 +119,7 @@
 		<separator name="Clipboard separator"/>
 		<placeholder name="File Clipboard Actions">
 			<menuitem name="Paste" action="Paste"/>
+			<menuitem name="PasteLinks" action="Paste Links"/>
 		</placeholder>
 	</placeholder>
 

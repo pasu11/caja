@@ -365,6 +365,8 @@ static void action_copy_files_callback             (GtkAction *action,
 						    gpointer   callback_data);
 static void action_paste_files_callback            (GtkAction *action,
 						    gpointer   callback_data);
+static void action_paste_links_callback            (GtkAction *action,
+						    gpointer   callback_data);
 static void action_copy_to_next_pane_callback      (GtkAction *action,
 						    gpointer   callback_data);
 static void action_move_to_next_pane_callback      (GtkAction *action,
@@ -6937,9 +6939,11 @@ action_cut_files_callback (GtkAction *action,
 static void
 paste_clipboard_data (FMDirectoryView *view,
 		      GtkSelectionData *selection_data,
-		      char *destination_uri)
+		      char *destination_uri,
+		      gboolean as_link)
 {
 	gboolean cut;
+	GdkDragAction action;
 	GList *item_uris;
 
 	cut = FALSE;
@@ -6950,13 +6954,16 @@ paste_clipboard_data (FMDirectoryView *view,
 		caja_window_slot_info_set_status (view->details->slot,
 						      _("There is nothing on the clipboard to paste."));
 	} else {
+		action = as_link ? GDK_ACTION_LINK
+				 : (cut ? GDK_ACTION_MOVE : GDK_ACTION_COPY);
+
 		fm_directory_view_move_copy_items (item_uris, NULL, destination_uri,
-						   cut ? GDK_ACTION_MOVE : GDK_ACTION_COPY,
+						   action,
 						   0, 0,
 						   view);
 
 		/* If items are cut then remove from clipboard */
-		if (cut) {
+		if (cut && !as_link) {
 			gtk_clipboard_clear (caja_clipboard_get (GTK_WIDGET (view)));
 		}
 
@@ -6977,7 +6984,28 @@ paste_clipboard_received_callback (GtkClipboard     *clipboard,
 	view_uri = fm_directory_view_get_backing_uri (view);
 
 	if (view->details->window != NULL) {
-		paste_clipboard_data (view, selection_data, view_uri);
+		paste_clipboard_data (view, selection_data, view_uri, FALSE);
+	}
+
+	g_free (view_uri);
+
+	g_object_unref (view);
+}
+
+static void
+paste_links_clipboard_received_callback (GtkClipboard     *clipboard,
+					 GtkSelectionData *selection_data,
+					 gpointer          data)
+{
+	FMDirectoryView *view;
+	char *view_uri;
+
+	view = FM_DIRECTORY_VIEW (data);
+
+	view_uri = fm_directory_view_get_backing_uri (view);
+
+	if (view->details->window != NULL) {
+		paste_clipboard_data (view, selection_data, view_uri, TRUE);
 	}
 
 	g_free (view_uri);
@@ -7007,7 +7035,7 @@ paste_into_clipboard_received_callback (GtkClipboard     *clipboard,
 
 		directory_uri = caja_file_get_activation_uri (data->target);
 
-		paste_clipboard_data (view, selection_data, directory_uri);
+		paste_clipboard_data (view, selection_data, directory_uri, FALSE);
 
 		g_free (directory_uri);
 	}
@@ -7029,6 +7057,21 @@ action_paste_files_callback (GtkAction *action,
 	gtk_clipboard_request_contents (caja_clipboard_get (GTK_WIDGET (view)),
 					copied_files_atom,
 					paste_clipboard_received_callback,
+					view);
+}
+
+static void
+action_paste_links_callback (GtkAction *action,
+			      gpointer callback_data)
+{
+	FMDirectoryView *view;
+
+	view = FM_DIRECTORY_VIEW (callback_data);
+
+	g_object_ref (view);
+	gtk_clipboard_request_contents (caja_clipboard_get (GTK_WIDGET (view)),
+					copied_files_atom,
+					paste_links_clipboard_received_callback,
 					view);
 }
 
@@ -8141,6 +8184,10 @@ static const GtkActionEntry directory_view_entries[] = {
   /* label, accelerator */       N_("_Paste"), "<control>V",
   /* tooltip */                  N_("Move or copy files previously selected by a Cut or Copy command"),
                                  G_CALLBACK (action_paste_files_callback) },
+  /* name, icon name */        { FM_ACTION_PASTE_LINKS, "edit-paste",
+  /* label, accelerator */       N_("Paste _Link/s"), "",
+  /* tooltip */                  N_("Create a symbolic link here for each item on the clipboard"),
+                                 G_CALLBACK (action_paste_links_callback) },
   /* We make accelerator "" instead of null here to not inherit the stock
      accelerator for paste */
   /* name, icon name */        { "Paste Files Into", "edit-paste",
@@ -8591,6 +8638,11 @@ clipboard_targets_received (GtkClipboard     *clipboard,
 	G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
 	action = gtk_action_group_get_action (view->details->dir_action_group,
 					      FM_ACTION_PASTE);
+	gtk_action_set_sensitive (action,
+				  can_paste && !fm_directory_view_is_read_only (view));
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_PASTE_LINKS);
 	gtk_action_set_sensitive (action,
 				  can_paste && !fm_directory_view_is_read_only (view));
 
@@ -9351,6 +9403,10 @@ real_update_paste_menu (FMDirectoryView *view,
 	G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
 	action = gtk_action_group_get_action (view->details->dir_action_group,
 					      FM_ACTION_PASTE);
+	gtk_action_set_sensitive (action, !is_read_only);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      FM_ACTION_PASTE_LINKS);
 	gtk_action_set_sensitive (action, !is_read_only);
 
 	action = gtk_action_group_get_action (view->details->dir_action_group,

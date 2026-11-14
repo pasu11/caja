@@ -6392,6 +6392,14 @@ msgstr "准备将选中的文件用粘贴命令复制"
 msgid "Move or copy files previously selected by a Cut or Copy command"
 msgstr "移动或复制由前面的剪切或复制命令所选中的文件"
 
+#: src/file-manager/fm-directory-view.c:7440
+msgid "Paste _Link/s"
+msgstr "粘贴为链接(_L)"
+
+#: src/file-manager/fm-directory-view.c:7441
+msgid "Create a symbolic link here for each item on the clipboard"
+msgstr "为剪贴板中的每个项目在此创建符号链接"
+
 #: src/file-manager/fm-directory-view.c:7441
 #: src/file-manager/fm-directory-view.c:7604
 #: src/file-manager/fm-tree-view.c:1318
