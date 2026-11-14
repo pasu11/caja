@@ -6,7 +6,7 @@
 
 <p align="center"><b>The file manager for the MATE desktop</b><br>
 Personal fork of <a href="https://github.com/mate-desktop/caja">mate-desktop/caja</a>
-with two fixes and one added feature.</p>
+with two fixes and two added features.</p>
 
 <p align="center">
   <a href="https://github.com/pasu11/caja/blob/master/COPYING"><img src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg" alt="License"></a>
@@ -19,7 +19,7 @@ small set of patches; upstream bugs should be reported
 
 | Branch | Base | Contents |
 | --- | --- | --- |
-| `master` (default) | upstream `master` (`4de76eb`) | upstream + the two fixes and the added feature merged in + these docs |
+| `master` (default) | upstream `master` (`4de76eb`) | upstream + the two fixes and the two added features merged in + these docs |
 | `fixes-1.29.1` | upstream release tag `v1.29.1` | the 1.29.1 release + the same changes |
 
 The changes are independent of each other and can be dropped individually.
@@ -115,6 +115,36 @@ After (this fork):
 `caja-file-private.h`, `caja-directory-async.c`,
 `src/file-manager/fm-directory-view.c`, `fm-properties-window.c`
 
+### Open the real location of a symbolic link
+
+Caja keeps the path of a symbolic link when it is opened as a folder: the
+contents are the target's, but the location bar, the history and the window
+title keep showing the link. That is useful when the link name carries the
+meaning, but there was no way to get from the link to the target folder
+itself. The context menu of a selected symbolic link to a folder now has two
+extra entries below *Open in New Window*, and the background and path bar
+menus of a folder opened through a symbolic link have the same two:
+
+* *Open Real Location in New Tab* opens the canonical path in a new tab
+  (navigation windows only).
+* *Open Real Location in New Window* opens the canonical path in a new
+  navigation window.
+
+![Open Real Location in the context menu](docs/screenshots/real-link.png)
+
+The canonical path is the `realpath()` of the link, so every symbolic link in
+the path is resolved, not just the last component: from
+`/media/Temp/Link to caja` the new tab shows
+`/media/Backup/Program/mate/fix/caja`. The entries only appear when they would
+change the path (a selected symbolic link to a folder, or an open folder whose
+canonical path differs from the displayed one); broken links, non-local
+locations and paths that cannot be resolved hide them.
+
+The new strings carry a `zh_CN` translation.
+
+**Files:** `src/file-manager/fm-actions.h`, `fm-directory-view.c`,
+`caja-directory-view-ui.xml`, `po/zh_CN.po`
+
 ## Building
 
 The tree has no generated `configure` script, and `mate-submodules` (libegg)
@@ -160,6 +190,10 @@ lower-bound marker behind the number, so it has one more commit than the
 three patches. The same three patches (with that follow-up folded in) are
 attached to the
 [releases](https://github.com/pasu11/caja/releases) page.
+
+The real-location feature is not a branch commit yet; it is carried as
+`caja-1.29.1-open-real-location.patch`, which applies after the three patches
+above.
 
 ## Upstream
 

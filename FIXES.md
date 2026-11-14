@@ -140,6 +140,50 @@ Space: 198.0 GB`.)
 `/usr/share`. The status bar never blocks the UI; the count runs
 asynchronously.
 
+## Added feature: open the real location of a symbolic link
+
+**Files:** `src/file-manager/fm-actions.h`,
+`src/file-manager/fm-directory-view.c`,
+`src/file-manager/caja-directory-view-ui.xml`, `po/zh_CN.po`
+
+![Open Real Location in the context menu](docs/screenshots/real-link.png)
+
+**Symptom:** caja keeps the path of a symbolic link when it is opened as a
+folder: the contents are the target's, but the location bar, the history and
+the window title keep showing the link. That is useful when the link name
+carries the meaning, but there was no way to get to the target folder itself
+from the link - the target had to be read from the properties window and
+typed into the location bar.
+
+**Behavior:** the context menu of a selected symbolic link to a folder gets
+two entries below *Open in New Window*, and the same two entries appear in the
+background and path bar context menus of a folder that was opened through a
+symbolic link:
+
+* *Open Real Location in New Tab* opens the canonical path in a new tab
+  (navigation windows only; hidden where tabs do not exist).
+* *Open Real Location in New Window* opens the canonical path in a new
+  navigation window.
+
+The canonical path is the `realpath()` of the link, so every symbolic link in
+the path is resolved, not just the last component: from
+`/media/Temp/Link to caja` the new tab shows
+`/media/Backup/Program/mate/fix/caja`.
+
+The entries are only shown when they would change the path: for a selection
+that contains a symbolic link to a folder, and for an open folder whose
+canonical path differs from the displayed one. Broken links, non-local
+locations (`trash:`, network) and paths that cannot be resolved (no search
+permission) hide the entries instead of opening an error dialog. The new
+strings carry a `zh_CN` translation.
+
+**Cost:** nothing while the menus are closed; a popup calls `realpath()` once
+per selected link, and once for the open folder when the background or path
+bar menu is built.
+
+**Patch:** `caja-1.29.1-open-real-location.patch` (applies after the three
+commits listed above).
+
 ## Building
 
 The tree has no generated `configure` script; run `autoreconf` first.
